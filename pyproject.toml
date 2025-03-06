@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mediumroast_py"
-version = "0.6.12.17"
+version = "0.6.14.01"
 description = "This Python package provides a Software Development Kit (SDK) for interacting with Mediumroast for GitHub. It is used internally by Mediumroast, Inc. and meant for developers to make use of."
 authors = ["Michael Hay <michael.hay@mediumroast.io>"]
 license = "Apache-2.0"

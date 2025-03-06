@@ -7,6 +7,7 @@ import urllib.parse
 from requests.auth import HTTPBasicAuth
 from datetime import datetime
 from pprint import pprint
+import base64
 
 __license__ = "Apache 2.0"
 __copyright__ = "Copyright (C) 2024 Mediumroast, Inc."
@@ -251,9 +252,16 @@ class GitHubFunctions:
                 head=branch.name,
                 base=self.main_branch_name
             )
-            pull = repo.get_pull(pull.number)
-            if pull.mergeable:
-                my_merge = pull.merge(commit_message=commit_description)
+            # Get the pull request
+            pull_request = repo.get_pull(pull.number)
+
+            # Wait until we confirm the PR can be merged
+            while pull_request.mergeable is None:
+                time.sleep(2)  # Wait for 2 seconds before checking again
+                pull_request = repo.get_pull(pull.number)  # Refresh the pull request object
+
+            if pull_request.mergeable:
+                my_merge = pull_request.merge(commit_message=commit_description)
                 return [
                     True, 
                     {'status_code': 200, 'status_msg': f'Operation successful merged branch [{branch.name}] into [{self.main_branch_name}]'}, my_merge.merged
@@ -261,8 +269,8 @@ class GitHubFunctions:
             else:
                 return [
                     False, 
-                    {'status_code': 420, 'status_msg': 'Pull request cannot be merged into branch [{self.main_branch_name}] current pull state: [{pull.state}].'}, 
-                    pull
+                    {'status_code': 420, 'status_msg': 'Pull request cannot be merged into branch [{self.main_branch_name}] current pull state: [{pull_request.state}].'}, 
+                    pull_request
                 ]
         except Exception as e:
             return [
@@ -382,26 +390,27 @@ class GitHubFunctions:
         except Exception as e:
             return [False, { 'status_code': 503, 'status_msg': f'unable to delete object [{file_name}] from container [{container_name}]' }, str(e)]
 
-    def _custom_encode_uri_component(self, string):
-        return ''.join([urllib.parse.quote(char, safe='') if char in "!*'()" else urllib.parse.quote(char) for char in string])
+    # In a future release the following methods will be removed as they are not used in the current implementation
+    # def _custom_encode_uri_component(self, string):
+    #     return ''.join([urllib.parse.quote(char, safe='') if char in "!*'()" else urllib.parse.quote(char) for char in string])
 
-    def _download_file(self, url, headers):
-        try:
-            download_result = requests.get(url, headers=headers)
-            download_result.raise_for_status()
-            return [True, download_result.content]
-        except requests.exceptions.RequestException as e:
-            if 'Request path contains unescaped characters' in str(e) or 'ERR_UNESCAPED_CHARACTERS' in str(e):
-                return [False, 'ERR_UNESCAPED_CHARACTERS']
-            return [False, str(e)]
+    # def _download_file(self, url, headers):
+    #     try:
+    #         download_result = requests.get(url, headers=headers)
+    #         download_result.raise_for_status()
+    #         return [True, download_result.content]
+    #     except requests.exceptions.RequestException as e:
+    #         if 'Request path contains unescaped characters' in str(e) or 'ERR_UNESCAPED_CHARACTERS' in str(e):
+    #             return [False, 'ERR_UNESCAPED_CHARACTERS']
+    #         return [False, str(e)]
 
-    def _re_encode_download_url(self, url, original_file_name):
-        url_parts = url.split('/')
-        last_part = url_parts.pop()
-        url_parts.pop()
-        alt_last_part = last_part.split('?')
-        query_params = alt_last_part[-1] if len(alt_last_part) > 1 else ''
-        return f"{'/'.join(url_parts)}/{original_file_name}{'?' + query_params if query_params else ''}"
+    # def _re_encode_download_url(self, url, original_file_name):
+    #     url_parts = url.split('/')
+    #     last_part = url_parts.pop()
+    #     url_parts.pop()
+    #     alt_last_part = last_part.split('?')
+    #     query_params = alt_last_part[-1] if len(alt_last_part) > 1 else ''
+    #     return f"{'/'.join(url_parts)}/{original_file_name}{'?' + query_params if query_params else ''}"
 
     def read_blob(self, file_name):
         """
@@ -410,14 +419,14 @@ class GitHubFunctions:
         Parameters
         ----------
         file_name : str
-            The name of the blob to read with a complete path to the file (e.g. dirname/filename.ext).
+            The name of the blob to read with a complete path to the file (e.g., dirname/filename.ext).
 
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the blob's raw data (or the error message in case of failure).
+            A list containing a boolean indicating success or failure, a status message,
+            and the blob's raw data (decoded content or error message).
         """
-        original_file_name_encoded = self._custom_encode_uri_component(file_name)
         encoded_file_name = urllib.parse.quote(file_name)
         object_url = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{encoded_file_name}"
         headers = {'Authorization': 'token ' + self.token}
@@ -426,47 +435,50 @@ class GitHubFunctions:
             result = requests.get(object_url, headers=headers)
             result.raise_for_status()
             result_json = result.json()
-            download_url = result_json['download_url']
 
-            blob_data = self._download_file(download_url, headers)
+            # Check if 'content' is available in the response
+            if 'content' in result_json and result_json['content']:
+                # Get the Base64-encoded content
+                encoded_content = result_json['content']
+                # Remove any newline characters
+                encoded_content = encoded_content.replace('\n', '')
+                # Decode the content
+                decoded_content = base64.b64decode(encoded_content)
 
-            if blob_data[0]:
-                return [True, {'status_code': 200, 'status_msg': f'read object [{file_name}]'}, blob_data[1]]
+                # Return the decoded content
+                return [
+                    True,
+                    {'status_code': 200, 'status_msg': f'read object [{file_name}]'},
+                    decoded_content
+                ]
             else:
-                if blob_data[1] == 'ERR_UNESCAPED_CHARACTERS':
-                    download_url = self._re_encode_download_url(download_url, original_file_name_encoded)
-                    blob_data = self._download_file(download_url, headers)
-                    if blob_data[0]:
-                        return [True, {'status_code': 200, 'status_msg': f'read object [{file_name}]'}, blob_data[1]]
-                return [False, {'status_code': 503, 'status_msg': f'unable to read object [{file_name}] due to [{blob_data[1]}].'}, blob_data[1]]
-        except Exception as e:
-            return [False, {'status_code': 503, 'status_msg': f'unable to read object [{file_name}]'}, str(e)]
+                # If 'content' is not available (e.g., for large files), use 'download_url'
+                if 'download_url' in result_json and result_json['download_url']:
+                    download_url = result_json['download_url']
+                    download_result = requests.get(download_url, headers=headers)
+                    download_result.raise_for_status()
+                    # The content is already in binary form
+                    decoded_content = download_result.content
 
-    def read_blob_orig(self, file_name):
-        """
-        NOTE: This is the original implementation of the read_blob method. It is kept here for reference and comparison purposes. It is not used in the current implementation.
-        """
+                    return [
+                        True,
+                        {'status_code': 200, 'status_msg': f'read object [{file_name}]'},
+                        decoded_content
+                    ]
+                else:
+                    return [
+                        False,
+                        {'status_code': 404, 'status_msg': f'Content not found for [{file_name}]'},
+                        None
+                    ]
 
-        encoded_file_name = urllib.parse.quote(file_name)
-        object_url = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{encoded_file_name}"
-        headers = {'Authorization': 'token ' + self.token}
-        try:
-            result = requests.get(object_url, headers=headers)
-            result_json = result.json()
-            download_url = result_json['download_url']
-            download_result = requests.get(download_url)
-            bin_file = download_result.content
-            return [
-                True, 
-                {"status_code": 200, "status_msg": f"read object [{file_name}] from container [{file_name}]"}, 
-                bin_file
-            ]
         except Exception as e:
             return [
-                False, 
-                {"status_code": 503, "status_msg": f"unable to read object [{file_name}] due to [{e}]."}, 
-                e
+                False,
+                {'status_code': 503, 'status_msg': f'unable to read object [{file_name}] due to [{str(e)}]'},
+                None
             ]
+
     
     def write_blob(self, container_name, file_name, blob, branch_name, sha=None):
         """
@@ -646,21 +658,6 @@ class GitHubFunctions:
         # For each container in the list of containers, for that container first check to see 
         # if the system flag is set to False. If it is then check to see if the key is in the white list.
         # If it is not in the white list return an error message.
-        # NOTE: Commenting out as this may not be needed since catch reads the objects
-        # for container in my_containers:
-
-        #         # Get the current objects from the container
-        #         read_response = self.read_objects(container)
-        #         if not read_response[0]:
-        #             return [
-        #                 False,
-        #                 {
-        #                     'status_code': read_response[1]['status_code'],
-        #                     'status_msg': 'Failed to read objects from container [{}].'.format(container)
-        #                 },
-        #                 None
-        #             ]
-        #         updates[container]['objects'] = read_response[2]['mr_json']
 
 
         # Catch the containers for modification
@@ -691,10 +688,6 @@ class GitHubFunctions:
         # Loop through the containers and update the objects
         for container_name in my_containers:
             # Convert the white_list to a set for efficient set operations
-            # NOTICE: the two lines below are added because of processing problems with Caffeine.
-            #         Until we understand what the problems are we will keep this code in place.
-            with open('/dev/null', 'w') as f:
-                f.write(json.dumps(updates))
             white_list_set = set(updates[container_name]['white_list'])
             
 
@@ -705,9 +698,9 @@ class GitHubFunctions:
             current_objects = caught[2]['containers'][container_name]['objects']
 
             # Get the updates from the dictionary
-            updates = updates[container_name]['updates']
+            updates_to_process = updates[container_name]['updates']
             # Loop through the updates, find the object(s) to update, and then perform the updates
-            for my_obj in updates.keys():
+            for my_obj in updates_to_process.keys():
                 obj_name = my_obj
                 obj = None
                 # Remove the object from the list of objects so we can add it back later
@@ -729,7 +722,7 @@ class GitHubFunctions:
                     ]
                 if not system:
                     # Check to see if the updates are in the white list
-                    keys_set = set(updates[my_obj].keys())
+                    keys_set = set(updates_to_process[my_obj].keys())
 
                     # Find the keys that are not allowed by subtracting the white_list from the keys
                     not_allowed_keys = keys_set - white_list_set
@@ -747,7 +740,7 @@ class GitHubFunctions:
                         ]
                 
                 # Check to see if we should update the object using the updates dictionary
-                for key, value in updates[my_obj].items():
+                for key, value in updates_to_process[my_obj].items():
                     # Update the object
                     obj[key] = value
                     now = datetime.now()
@@ -773,7 +766,7 @@ class GitHubFunctions:
                     ]
         
         # Release the containers
-        released = self.release_container(caught[2], f"Updated [{len(current_objects)}] [{container_name}] objects.")
+        released = self.release_container(caught[2], f"Updated [{len(current_objects)}] [{container_name}].")
         if not released[0]:
             return [
                 False,
@@ -785,7 +778,14 @@ class GitHubFunctions:
             ]
 
         # Return the updated object
-        return [True, {'status_code': 200, 'status_msg': 'Object updated successfully.'}, updates]
+        return [
+            True, 
+            {
+                'status_code': 200, 
+                'status_msg': f"Updated [{len(current_objects)}] [{container_name}] successfully."
+            }, 
+            current_objects
+        ]
 
     def delete_object(self, container_name, file_name, branch_name, sha):
         """
