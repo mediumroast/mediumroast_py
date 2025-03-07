@@ -68,6 +68,9 @@ class GitHubFunctions:
             'Users': None,
             'Billings': None
         }
+        self.headers = {"Accept": "application/vnd.github.v3+json",
+                    "Authorization": f"token {self.token}",
+                    "X-GitHub-Api-Version": "2022-11-28"}
 
     def get_sha(self, container_name, file_name, branch_name):
         """
@@ -87,12 +90,19 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a dictionary with status information, and the SHA of the file (or the error message in case of failure).
         """
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            contents = repo.get_contents(f"{container_name}/{file_name}", ref=branch_name)
-            return [True, {'status_code': 200, 'status_msg': f'captured sha for [{container_name}/{file_name}]'}, contents.sha]
-        except Exception as e:
-            return [False, {'status_code': 500, 'status_msg': f'unable to capture sha for [{container_name}/{file_name}] due to [{str(e)}]'}, str(e)]
+        # try:
+        #     repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
+        #     contents = repo.get_contents(f"{container_name}/{file_name}", ref=branch_name)
+        #     return [True, {'status_code': 200, 'status_msg': f'captured sha for [{container_name}/{file_name}]'}, contents.sha]
+        # except Exception as e:
+        #     return [False, {'status_code': 500, 'status_msg': f'unable to capture sha for [{container_name}/{file_name}] due to [{str(e)}]'}, str(e)]
+        endpoint = f'https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{container_name}/{file_name}?ref={branch_name}'
+        r = requests.get(endpoint, headers=self.headers)
+        if r.status_code == 200:
+            content = json.loads(r.content)
+            return [True, {'status_code': r.status_code, 'status_msg': f'captured sha for [{container_name}/{file_name}]'}, content]
+        else:
+            return [False, {'status_code': r.status_code, 'status_msg': f'unable to capture sha for [{container_name}/{file_name}]'}]
 
     def get_user(self):
         """
@@ -103,29 +113,36 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the user's raw data (or the error message in case of failure).
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        try:
-            user = self.github_instance.get_user()
-            return [True, 'SUCCESS: able to capture current user info', user.raw_data]
-        except Exception as e:
-            return [False, f'ERROR: unable to capture current user info due to [{str(e)}]', str(e)]
+        # return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
+        # try:
+        #     user = self.github_instance.get_user()
+        #     return [True, 'SUCCESS: able to capture current user info', user.raw_data]
+        # except Exception as e:
+        #     return [False, f'ERROR: unable to capture current user info due to [{str(e)}]', str(e)]
+        endpoint = f'https://api.github.com/user'
+        r = requests.get(endpoint, headers=headers)
+        if r.status_code == 200:
+            content = json.loads(r.content)
+            return [True, {'status_code': r.status_code, 'status_msg': f'SUCCESS: able to capture current user info'}, content]
+        else:
+            return [False, {'status_code': r.status_code, 'status_msg': f'ERROR: unable to capture current user info'}, content]
         
     def get_all_users(self):
         """
         Get all users who are collaborators on the repository.
-
+        Currently works with PAT tokens.
         Returns
         -------
         list
             A list containing a boolean indicating success or failure, a status message, and a list of users' raw data (or the error message in case of failure).
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            collaborators = repo.get_collaborators()
-            return [True, 'SUCCESS: able to capture info for all users', [collaborator.raw_data for collaborator in collaborators]]
-        except Exception as e:
-            return [False, f'ERROR: unable to capture info for all users due to [{str(e)}]', str(e)]
+        endpoint = f'https://api.github.com/repos/{self.org_name}/{self.repo_name}/collaborators'
+        r = requests.get(endpoint, headers=self.headers)
+        if r.status_code == 200:
+            content = json.loads(r.content)
+            return [True, {'status_code': r.status_code, 'status_msg': f'SUCCESS: able to capture info for all users'}, content]
+        else:
+            return [False, f'ERROR: unable to capture info for all users from: {self.org_name/self.repo_name}', content]
 
     def create_repository(self):
         """
