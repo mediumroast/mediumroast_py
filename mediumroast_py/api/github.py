@@ -192,17 +192,12 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the actions billings information as a dictionary (or the error message in case of failure).
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        try:
-            url = f"https://api.github.com/orgs/{self.org_name}/settings/billing/actions"
-            response = requests.get(url, auth=HTTPBasicAuth(self.username, self.token))
-
-            if response.status_code == 200:
-                return [True, 'SUCCESS: able to capture actions billings info', response.json()]
-            else:
-                return [False, f'ERROR: unable to capture actions billings info due to [{response.status_code}]', None]
-        except Exception as e:
-            return [False, f'ERROR: unable to capture actions billings info due to [{str(e)}]', str(e)]
+        endpoint = f"https://api.github.com/orgs/{self.org_name}/settings/billing/actions"
+        r = requests.get(endpoint, headers=self.headers)
+        if r.status_code == 200:
+            return [True, 'SUCCESS: able to capture actions billings info', r.json()]
+        else:
+            return [False, f'ERROR: unable to capture actions billings info due to [{r.status_code}]', None]
 
     def get_storage_billings(self):
         """
