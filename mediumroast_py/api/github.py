@@ -144,7 +144,7 @@ class GitHubFunctions:
         else:
             return [False, f'ERROR: unable to capture info for all users from: {self.org_name/self.repo_name}', content]
 
-    def create_repository(self):
+    def create_repository(self, repo = None, desc = None):
         """
         Create a new repository in the organization.
 
@@ -155,13 +155,33 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, and the newly created repository's raw data (or the error message in case of failure).
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        try:
-            org = self.github_instance.get_organization(self.org_name)
-            repo = org.create_repo(self.repo_name, description=self.repo_desc, private=True)
+        # return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
+        # try:
+        #     org = self.github_instance.get_organization(self.org_name)
+        #     repo = org.create_repo(self.repo_name, description=self.repo_desc, private=True)
+        #     return [True, repo]
+        # except Exception as e:
+        #     return [False, str(e)]
+        endpoint = f'https://api.github.com/orgs/{self.org_name}/repos'
+
+        if repo is None:
+            repo = self.repo_name
+        if desc is None:
+            desc = self.repo_desc
+
+        data = {
+            "name":f"{repo}",
+            "description":f"{desc}",
+            "private":True,
+            "has_issues":True,
+            "has_projects":True,
+            "has_wiki":True}
+        
+        r = requests.post(endpoint, headers=headers, data=json.dumps(data))
+        if r.status_code == 201:
             return [True, repo]
-        except Exception as e:
-            return [False, str(e)]
+        else:
+            return [False, {"response":json.loads(r.content)}]
     
     def get_actions_billings(self):
         """
