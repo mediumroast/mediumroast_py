@@ -177,11 +177,11 @@ class GitHubFunctions:
             "has_projects":True,
             "has_wiki":True}
         
-        r = requests.post(endpoint, headers=headers, data=json.dumps(data))
+        r = requests.post(endpoint, headers=self.headers, data=json.dumps(data))
         if r.status_code == 201:
             return [True, repo]
         else:
-            return [False, {"response":json.loads(r.content)}]
+            return [False, {"response":r.json()}]
     
     def get_actions_billings(self):
         """
@@ -250,14 +250,27 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the new branch's raw data (or the error message in case of failure).
         """
+        # branch_name = str(int(time.time()))
+        # try:
+        #     repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
+        #     main_branch = repo.get_branch(self.main_branch_name)
+        #     ref = repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
+        #     return [True, f"SUCCESS: created branch [{branch_name}]", ref.raw_data]
+        # except Exception as e:
+        #     return [False, f"FAILED: unable to create branch [{branch_name}] due to [{str(e)}]", None]
+        endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/git/refs"
+        sha = self.get_commit_sha()[1]['sha']
         branch_name = str(int(time.time()))
+        data = {"ref": f"refs/heads/{branch_name}", "sha": sha}
         try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            main_branch = repo.get_branch(self.main_branch_name)
-            ref = repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
-            return [True, f"SUCCESS: created branch [{branch_name}]", ref.raw_data]
+            r = requests.post(endpoint, headers=self.headers, data=json.dumps(data))
+            if r.status_code == 201:
+                return [True, f"SUCCESS: created branch [{branch_name}]", r.json()]
+            else:
+                return [False, {"response": r.json()}]
         except Exception as e:
             return [False, f"FAILED: unable to create branch [{branch_name}] due to [{str(e)}]", None]
+
 
     def merge_branch_to_main(self, branch_name, commit_description='Performed CRUD operation on objects.'):
         """
