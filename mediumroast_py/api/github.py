@@ -208,8 +208,8 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the storage billings information as a dictionary (or the error message in case of failure).
         """
+        endpoint = f"https://api.github.com/orgs/{self.org_name}/settings/billing/shared-storage"
         try:
-            endpoint = f"https://api.github.com/orgs/{self.org_name}/settings/billing/shared-storage"
             r = requests.get(endpoint, headers=self.headers)
 
             if r.status_code == 200:
@@ -229,9 +229,10 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, and the organization's raw data (or the error message in case of failure).
         """
+        endpoint = f"https://api.github.com/orgs/{self.org_name}"
         try:
-            org = self.github_instance.get_organization(self.org_name)
-            return [True, org.raw_data]
+            r = requests.get(endpoint, headers=self.headers)
+            return [True, r.json()]
         except Exception as e:
             return [False, str(e)]
         
