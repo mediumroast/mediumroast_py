@@ -209,13 +209,13 @@ class GitHubFunctions:
             A list containing a boolean indicating success or failure, a status message, and the storage billings information as a dictionary (or the error message in case of failure).
         """
         try:
-            url = f"https://api.github.com/orgs/{self.org_name}/settings/billing/shared-storage"
-            response = requests.get(url, auth=HTTPBasicAuth(self.username, self.token))
+            endpoint = f"https://api.github.com/orgs/{self.org_name}/settings/billing/shared-storage"
+            r = requests.get(endpoint, headers=self.headers)
 
-            if response.status_code == 200:
-                return [True, 'SUCCESS: able to capture storage billings info', response.json()]
+            if r.status_code == 200:
+                return [True, 'SUCCESS: able to capture storage billings info', r.json()]
             else:
-                return [False, f'ERROR: unable to capture storage billings info due to [{response.status_code}]', None]
+                return [False, f'ERROR: unable to capture storage billings info due to [{r.status_code}]', None]
         except Exception as e:
             return [False, f'ERROR: unable to capture storage billings info due to [{str(e)}]', str(e)]
     
