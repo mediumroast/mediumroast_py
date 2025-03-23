@@ -288,34 +288,46 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the pull request's raw data (or the error message in case of failure).
         """
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            branch = repo.get_branch(branch_name)
-            pull = repo.create_pull(
-                title=commit_description, 
-                body=commit_description, 
-                head=branch.name,
-                base=self.main_branch_name
-            )
-            pull = repo.get_pull(pull.number)
-            if pull.mergeable:
-                my_merge = pull.merge(commit_message=commit_description)
+        try: 
+            pull_endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/pulls"
+            pull_data = {
+                "title":commit_description,
+                "body":commit_description,
+                "head":f"{branch_name}", # Branch name
+                "base":f"{self.main_branch_name}"} # main branch
+            r = requests.post(pull_endpoint, headers=headers, data=json.dumps(pull_data))
+            if r.status_code != 201:
                 return [
-                    True, 
-                    {'status_code': 200, 'status_msg': f'Operation successful merged branch [{branch.name}] into [{self.main_branch_name}]'}, my_merge.merged
+                    False, 
+                    {'status_code': r.status_code, 'status_msg': f"Pull request or branch merge failed due to [{r.json()}]"}, 
+                    None
+                ]
+            else:
+                pull_number = r.json()['number']
+        except Exception as e:
+            return [False, f'ERROR: unable to create pull request: [{str(e)}]', str(e)]
+
+        try: 
+            merge_endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/pulls/{pull_number}/merge"
+            merge_data = {
+                "commit_title":commit_description,
+                "commit_message":commit_description}
+            r = requests.put(merge_endpoint, headers=headers, data=json.dumps(merge_data))
+            if r.status_code != 200:
+                return [
+                    False, 
+                    {'status_code': r.status_code, 'status_msg': f"Pull request or branch merge failed due to [{r.json()}]"}, 
+                    None
                 ]
             else:
                 return [
-                    False, 
-                    {'status_code': 420, 'status_msg': 'Pull request cannot be merged into branch [{self.main_branch_name}] current pull state: [{pull.state}].'}, 
-                    pull
+                    True, 
+                    {'status_code': r.status_code, 'status_msg': f'Operation successful merged branch [{branch_name}] into [{self.main_branch_name}]'}, 
+                    r.json()
                 ]
+                
         except Exception as e:
-            return [
-                False, 
-                {'status_code': 421, 'status_msg': f"Pull request or branch merge failed due to [{str(e)}]"}, 
-                None
-            ]
+            return [False, f'ERROR: unable to merge: [{str(e)}]', str(e)]
         
     def check_for_lock(self, container_name):
         """
