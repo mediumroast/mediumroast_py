@@ -295,7 +295,7 @@ class GitHubFunctions:
                 "body":commit_description,
                 "head":f"{branch_name}", # Branch name
                 "base":f"{self.main_branch_name}"} # main branch
-            r = requests.post(pull_endpoint, headers=headers, data=json.dumps(pull_data))
+            r = requests.post(pull_endpoint, headers=self.headers, data=json.dumps(pull_data))
             if r.status_code != 201:
                 return [
                     False, 
@@ -312,7 +312,7 @@ class GitHubFunctions:
             merge_data = {
                 "commit_title":commit_description,
                 "commit_message":commit_description}
-            r = requests.put(merge_endpoint, headers=headers, data=json.dumps(merge_data))
+            r = requests.put(merge_endpoint, headers=self.headers, data=json.dumps(merge_data))
             if r.status_code != 200:
                 return [
                     False, 
@@ -328,7 +328,40 @@ class GitHubFunctions:
                 
         except Exception as e:
             return [False, f'ERROR: unable to merge: [{str(e)}]', str(e)]
-        
+
+
+    def lock_container(self, container_name):
+        """
+        Lock a container by creating a lock file in it.
+
+        Parameters
+        ----------
+        container_name : str
+            The name of the container to lock.
+        branch_name : str
+            The name of the branch where the container is located.
+
+        Returns
+        -------
+        list
+            A list containing a boolean indicating success or failure, a status message, and the lock file's raw data (or the error message in case of failure).
+        """
+        lock_file = f"{container_name}/{self.lock_file_name}"
+        endpoint = f"https://api.github.com/repos/{org_name}/{repo_name}/contents/{lock_file}"
+        data = {
+            "message":f"Locking container [{container_name}] with [{lock_file}].",
+            "content":"bXkgbmV3IGZpbGUgY29udGVudHM="
+        }
+        try:
+            r = requests.put(endpoint, headers=self.headers, data=json.dumps(data))
+            if r.status_code != 200 | r.status_code != 201:
+                return [True, {"status_code": r.status_code,"status_msg": f"Locked the container [{container_name}]"}, r.json()]
+            else:
+                return [True, {"status_code": r.status_code,"status_msg": f"Locked the container [{container_name}]"}, r.json()]
+        except Exception as e:
+            return [False, {"status_msg": f"FAILED: Unable to lock the container [{container_name}]"}]
+
+
     def check_for_lock(self, container_name):
         """
         Check if a container is locked.
@@ -353,32 +386,7 @@ class GitHubFunctions:
                 return [False, f"container [{container_name}] is not locked with lock file [{self.lock_file_name}]", lock_exists]
         except Exception as e:
             return [False, str(e), None]
-        
 
-    def lock_container(self, container_name):
-        """
-        Lock a container by creating a lock file in it.
-
-        Parameters
-        ----------
-        container_name : str
-            The name of the container to lock.
-        branch_name : str
-            The name of the branch where the container is located.
-
-        Returns
-        -------
-        list
-            A list containing a boolean indicating success or failure, a status message, and the lock file's raw data (or the error message in case of failure).
-        """
-        lock_file = f"{container_name}/{self.lock_file_name}"
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            latest_commit = repo.get_commits()[0]
-            lock_response = repo.create_file(lock_file, f"Locking container [{container_name}] with [{lock_file}].", "", branch=self.main_branch_name)
-            return [True, {"status_code": 200,"status_msg": f"Locked the container [{container_name}]"}, lock_response]
-        except Exception as e:
-            return [False, {"status_code": 504, "status_msg": f"FAILED: Unable to lock the container [{container_name}]"}, str(e)]
 
     def unlock_container(self, container_name, commit_sha, branch_name=None):
         """
