@@ -512,8 +512,37 @@ class GitHubFunctions:
                  "status_msg": f"Error deleting object [{file_name}] from container [{container_name}]"}, 
                 str(e)]
     def _custom_encode_uri_component(self, string):
-        return ''.join([urllib.parse.quote(char, safe='') if char in "!*'()" else urllib.parse.quote(char) for char in string])
-
+        """
+        Custom URL encoder that ensures special characters are properly escaped for GitHub API.
+        
+        Specifically handles characters like !*'() with stricter encoding than standard.
+        
+        Parameters
+        ----------
+        string : str
+            The string to be URL encoded
+            
+        Returns
+        -------
+        str
+            The URL-encoded string with special handling for certain characters
+        
+        NOTE:
+        -------
+        Previous version was more pythonic; this version is rewriten for more readability and clarity.
+        """
+        special_chars = "!*'()"
+        encoded_chars = []
+        
+        for char in string:
+            if char in special_chars:
+                # Encode special characters with no safe characters
+                encoded_chars.append(urllib.parse.quote(char, safe=''))
+            else:
+                # Use standard URL encoding for other characters
+                encoded_chars.append(urllib.parse.quote(char))
+        
+        return ''.join(encoded_chars)
     def _download_file(self, url, headers):
         try:
             download_result = requests.get(url, headers=headers)
