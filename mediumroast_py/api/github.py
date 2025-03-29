@@ -394,35 +394,60 @@ class GitHubFunctions:
             return [False, str(e), None]
 
 
-    def unlock_container(self, container_name, commit_sha, branch_name=None):
+    def unlock_container(self, container_name, branch_name=None):
         """
         Unlock a container by deleting the lock file in it.
-
+    
         Parameters
         ----------
         container_name : str
             The name of the container to unlock.
-        branch_name : str
+        commit_sha : str
+            The SHA of the commit containing the lock file.
+        branch_name : str, optional
             The name of the branch where the container is located.
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the lock file's raw data (or the error message in case of failure).
+            A list containing a boolean indicating success or failure, 
+            a status message, and the response data (or error message in case of failure).
         """
         lock_file = f"{container_name}/{self.lock_file_name}"
         branch_name = branch_name if branch_name else self.main_branch_name
+        commit_sha = self.get_sha(container_name, self.lock_file_name, branch_name=branch_name)[1]['sha']
         lock_exists = self.check_for_lock(container_name)
+    
         if lock_exists[0]:
             try:
-                repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-                file_contents = repo.get_contents(lock_file, ref=branch_name)
-                unlock_response = repo.delete_file(lock_file, f"Unlocking container [{container_name}]", file_contents.sha, branch=branch_name)
-                return [True, {"status_code": 200, "status_msg": f"Unlocked the container [{container_name}]"}, unlock_response]
+                endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{lock_file}"
+                data = {
+                    "message": f"Unlocking container [{container_name}]",
+                    "sha": commit_sha,
+                    "branch": branch_name
+                }
+                r = requests.delete(endpoint, headers=self.headers, data=json.dumps(data))
+                
+                if r.status_code == 200:
+                    return [True, 
+                        {"status_code": r.status_code, 
+                         "status_msg": f"Unlocked the container [{container_name}]"}, 
+                        r.json()]
+                else:
+                    return [False, 
+                        {"status_code": r.status_code, 
+                         "status_msg": f"Failed to unlock container [{container_name}]. Status code: {r.status_code}"}, 
+                        r.json()]
             except Exception as e:
-                return [False, {"status_code": 504, "status_msg": f"Unable to unlock the container [{container_name}]"}, str(e)]
+                return [False, 
+                    {"status_code": 504, 
+                     "status_msg": f"Unable to unlock the container [{container_name}]"}, 
+                    str(e)]
         else:
-            return [False, {"status_code": 503, "status_msg": f"Unable to unlock the container [{container_name}]"}, None]
+            return [False, 
+                {"status_code": 503, 
+                 "status_msg": f"Unable to unlock the container [{container_name}]"}, 
+                None]
         
     def delete_blob(self, container_name, file_name, branch_name, sha):
         """
