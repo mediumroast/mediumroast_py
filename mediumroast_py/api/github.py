@@ -365,25 +365,31 @@ class GitHubFunctions:
     def check_for_lock(self, container_name):
         """
         Check if a container is locked.
-
+    
         Parameters
         ----------
         container_name : str
             The name of the container to check.
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating whether the container is locked or not, a status message, and the lock status (or the error message in case of failure).
+            A list containing a boolean indicating whether the container is locked or not, 
+            a status message, and the lock status (or the error message in case of failure).
         """
+        endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{container_name}"
         try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            contents = repo.get_contents(container_name)
-            lock_exists = any(content.path == f"{container_name}/{self.lock_file_name}" for content in contents)
-            if lock_exists:
-                return [True, f"container [{container_name}] is locked with lock file [{self.lock_file_name}]", lock_exists]
+            r = requests.get(endpoint, headers=self.headers)
+            if r.status_code == 200:
+                contents = r.json()
+                # Check if any of the files in the container is the lock file
+                lock_exists = any(content['name'] == self.lock_file_name for content in contents)
+                if lock_exists:
+                    return [True, f"container [{container_name}] is locked with lock file [{self.lock_file_name}]", lock_exists]
+                else:
+                    return [False, f"container [{container_name}] is not locked with lock file [{self.lock_file_name}]", lock_exists]
             else:
-                return [False, f"container [{container_name}] is not locked with lock file [{self.lock_file_name}]", lock_exists]
+                return [False, f"Unable to check container [{container_name}] for locks. Status code: {r.status_code}", None]
         except Exception as e:
             return [False, str(e), None]
 
