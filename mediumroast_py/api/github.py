@@ -449,36 +449,68 @@ class GitHubFunctions:
                  "status_msg": f"Unable to unlock the container [{container_name}]"}, 
                 None]
         
-    def delete_blob(self, container_name, file_name, branch_name, sha):
+    def delete_blob(self, container_name, file_name, branch_name=None):
         """
         Delete a blob (file) in a container (directory) in a specific branch.
-
+    
         Parameters
         ----------
         container_name : str
             The name of the container where the blob is located.
         file_name : str
             The name of the blob to delete.
-        branch_name : str
+        branch_name : str, optional
             The name of the branch where the blob is located.
-        sha : str
-            The SHA of the blob to delete.
-
+            If not provided, defaults to main branch.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the delete response's raw data (or the error message in case of failure).
+            A list containing a boolean indicating success or failure, 
+            a status message, and the delete response data 
+            (or the error message in case of failure).
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
+        branch_name = branch_name if branch_name else self.main_branch_name
+        file_path = f"{container_name}/{file_name}"
+        
         try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            file_path = f"{container_name}/{file_name}"
-            file_contents = repo.get_contents(file_path, ref=branch_name)
-            delete_response = repo.delete_file(file_path, f"Delete object [{file_name}]", file_contents.sha, branch=branch_name)
-            return [True, { 'status_code': 200, 'status_msg': f'deleted object [{file_name}] from container [{container_name}]' }, delete_response.raw_data]
+            # Get the file's SHA using the existing get_sha function
+            sha_response = self.get_sha(container_name, file_name, branch_name=branch_name)
+            if not sha_response[0]:
+                return [False, 
+                    {"status_code": 404, 
+                     "status_msg": f"File [{file_name}] not found in container [{container_name}]"}, 
+                    sha_response]
+    
+            # Extract SHA from the response
+            sha = sha_response[1]['sha']
+    
+            # Prepare the API request
+            endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{file_path}"
+            data = {
+                "message": f"Delete object [{file_name}]",
+                "sha": sha,
+                "branch": branch_name
+            }
+    
+            # Make the delete request
+            r = requests.delete(endpoint, headers=self.headers, data=json.dumps(data))
+            
+            if r.status_code == 200:
+                return [True, 
+                    {"status_code": r.status_code, 
+                     "status_msg": f"Deleted object [{file_name}] from container [{container_name}]"}, 
+                    r.json()]
+            else:
+                return [False, 
+                    {"status_code": r.status_code, 
+                     "status_msg": f"Failed to delete object [{file_name}] from container [{container_name}]. Status code: {r.status_code}"}, 
+                    r.json()]
         except Exception as e:
-            return [False, { 'status_code': 503, 'status_msg': f'unable to delete object [{file_name}] from container [{container_name}]' }, str(e)]
-
+            return [False, 
+                {"status_code": 500, 
+                 "status_msg": f"Error deleting object [{file_name}] from container [{container_name}]"}, 
+                str(e)]
     def _custom_encode_uri_component(self, string):
         return ''.join([urllib.parse.quote(char, safe='') if char in "!*'()" else urllib.parse.quote(char) for char in string])
 
