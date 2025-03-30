@@ -930,35 +930,47 @@ class GitHubFunctions:
 
     def update_object(self, updates):
         """
-        Update an object in a container in a specific branch.
-
+        Update objects in containers with provided field values.
+    
         Parameters
         ----------
-
         updates : dict
-            A dictionary containing the updates to apply to the object.
-
+            A dictionary with the following structure:
+            {
+                "container_name": {
+                    "white_list": ["allowed_field1", "allowed_field2", ...],
+                    "system": bool,  # If True, bypass white_list restrictions
+                    "updates": {
+                        "object_name1": {"field1": "new_value1", ...},
+                        "object_name2": {"field1": "new_value1", ...},
+                        ...
+                    }
+                },
+                ...
+            }
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the updated object (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - updated objects or error information
         """
         if not updates:
             return [False, {'status_code': 400, 'status_msg': 'No updates provided.'}, None]
         
-        my_containers = list(updates.keys())
-
+        # Get list of containers to be updated
+        container_names = list(updates.keys())
+    
+        # Prepare repository metadata for locking
         repo_metadata = {
-            "containers": {}, 
+            "containers": {container: {} for container in container_names}, 
             "branch": {}
         }
         
-        caught = dict()
-
-        repo_metadata["containers"] = {container: {} for container in my_containers}
-
+        # Lock containers and create working branch
         caught = self.catch_container(repo_metadata)
-
         if not caught[0]:
             return [
                 False,
@@ -969,85 +981,113 @@ class GitHubFunctions:
                 caught
             ]
         
-        for container_name in my_containers:
-            with open('/dev/null', 'w') as f:
-                f.write(json.dumps(updates))
-            white_list_set = set(updates[container_name]['white_list'])
+        # Track all processed objects for return
+        processed_objects = {}
+        
+        # Process each container
+        for container_name in container_names:
+            # Get update specifications for this container
+            container_updates = updates[container_name]
+            white_list = set(container_updates.get('white_list', []))
+            is_system_update = container_updates.get('system', False)
+            object_updates = container_updates.get('updates', {})
             
-
-            system = updates[container_name]['system']
-
+            # Get current objects from the container
             current_objects = caught[2]['containers'][container_name]['objects']
-
-            updates = updates[container_name]['updates']
-            for my_obj in updates.keys():
-                obj_name = my_obj
+            processed_objects[container_name] = []
+            
+            # Track modified objects to write back at once
+            modified_objects = []
+            
+            # Process each object to be updated
+            for obj_name, field_updates in object_updates.items():
+                # Find the object in the current objects
                 obj = None
+                remaining_objects = []
+                
                 for item in current_objects:
                     if item.get('name') == obj_name:
                         obj = item
-                        current_objects.remove(item)
-                        break
+                    else:
+                        remaining_objects.append(item)
+                
+                # Error if object doesn't exist
                 if obj is None:
                     return [
                         False,
                         {
                             'status_code': 404,
-                            'status_msg': 'Object [{}] does not exist in container [{}].'.format(obj_name, container_name)
+                            'status_msg': f"Object [{obj_name}] does not exist in container [{container_name}]."
                         },
                         None
                     ]
-                if not system:
-                    keys_set = set(updates[my_obj].keys())
-
-                    not_allowed_keys = keys_set - white_list_set
-
-                    if not_allowed_keys:
-                        first_not_allowed_key = next(iter(not_allowed_keys))
+                
+                # Check permission for non-system updates
+                if not is_system_update:
+                    update_keys = set(field_updates.keys())
+                    disallowed_keys = update_keys - white_list
+                    
+                    if disallowed_keys:
+                        first_disallowed = next(iter(disallowed_keys))
                         return [
                             False, 
                             {
                                 'status_code': 403, 
-                                'status_msg': f'Updating the key [{first_not_allowed_key}] is not supported in container [{container_name}].'
+                                'status_msg': f"Updating the key [{first_disallowed}] is not supported in container [{container_name}]."
                             },
                             None
                         ]
                 
-                for key, value in updates[my_obj].items():
+                # Apply updates to object
+                for key, value in field_updates.items():
                     obj[key] = value
-                    now = datetime.now()
-                    obj['modification_date'] = now.isoformat()
-
-                current_objects.append(obj)
-
-                write_response = self.write_object(
-                    container_name, 
-                    current_objects,
-                    caught[2]['branch']['name'],
-                    caught[2]['containers'][container_name]['object_sha']
-                )
-                if not write_response[0]:
-                    return [
-                        False,
-                        {
-                            'status_code': write_response[1]['status_code'],
-                            'status_msg': 'Failed to write updated object [{}] to container [{}].'.format(obj_name, container_name)
-                        },
-                        None
-                    ]
+                
+                # Add modification timestamp
+                obj['modification_date'] = datetime.now().isoformat()
+                
+                # Add to modified objects
+                modified_objects.append(obj)
+                processed_objects[container_name].append(obj)
+            
+            # Reconstruct full object list and write back to container
+            updated_object_list = remaining_objects + modified_objects
+            
+            write_response = self.write_object(
+                container_name, 
+                updated_object_list,
+                caught[2]['branch']['name'],
+                caught[2]['containers'][container_name]['object_sha']
+            )
+            
+            if not write_response[0]:
+                return [
+                    False,
+                    {
+                        'status_code': write_response[1]['status_code'],
+                        'status_msg': f"Failed to write updated objects to container [{container_name}]."
+                    },
+                    write_response
+                ]
         
-        released = self.release_container(caught[2], f"Updated [{len(current_objects)}] [{container_name}] objects.")
+        # Merge changes and release containers
+        commit_msg = f"Updated objects in {', '.join(container_names)}"
+        released = self.release_container(caught[2], commit_msg)
+        
         if not released[0]:
             return [
                 False,
                 {
                     'status_code': 503,
-                    'status_msg': 'Cannot release the container please check [{}] in GitHub.'.format(container_name)
+                    'status_msg': f"Cannot release containers. Changes may be pending in branch: {caught[2]['branch']['name']}"
                 },
                 released
             ]
-
-        return [True, {'status_code': 200, 'status_msg': 'Object updated successfully.'}, updates]
+    
+        return [
+            True, 
+            {'status_code': 200, 'status_msg': f"Successfully updated objects in {len(container_names)} containers."}, 
+            processed_objects
+        ]
 
     def delete_object(self, container_name, file_name, branch_name, sha):
         """
