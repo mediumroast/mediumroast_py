@@ -741,51 +741,101 @@ class GitHubFunctions:
                 str(e)
             ]
 
-    def write_object(self, container_name, obj, ref, sha):
+    def write_object(self, container_name, obj, branch_name=None, sha=None):
         """
-        Write an object to a container in a specific branch.
-
+        Write a JSON object to a container's object file in a specific branch.
+    
         Parameters
         ----------
         container_name : str
             The name of the container where the object will be written.
-        obj : dict
-            The object to write.
-        branch_name : str
+        obj : dict or list
+            The object(s) to write (will be serialized to JSON).
+        branch_name : str, optional
             The name of the branch where the object will be written.
-
+            If not provided, defaults to main branch.
+        sha : str, optional
+            The SHA of the existing file to update. If None, will be retrieved.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the write response's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - response data (or the error message in case of failure)
         """
-        content_to_transmit = json.dumps(obj)
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            file_path = f"{container_name}/{self.object_files[container_name]}"
-            obj_sha = self.get_sha(container_name, self.object_files[container_name], ref)[2]
-            write_response = repo.update_file(
-                file_path, 
-                f"Update object [{self.object_files[container_name]}]", 
-                content=content_to_transmit,
-                sha=obj_sha, 
-                branch=ref
-            )
-            return [
-                True, 
-                {
-                    "status_msg": f"wrote object [{self.object_files[container_name]}] to container [{container_name}]",
-                    "status_code": 200 
-                },
-                write_response
-            ]
-        except Exception as e:
-            print(e)
+        branch_name = branch_name if branch_name else self.main_branch_name
+        
+        # Validate container name
+        if container_name not in self.object_files or not self.object_files[container_name]:
             return [
                 False, 
                 {
-                    "status_code":f"unable to write object [{self.object_files[container_name]}] to container [{container_name}] due to [{str(e)}]",
-                    "status_msg": 503
+                    "status_code": 400, 
+                    "status_msg": f"Invalid container [{container_name}] or no object file defined"
+                },
+                None
+            ]
+        
+        file_path = f"{container_name}/{self.object_files[container_name]}"
+        content_to_transmit = json.dumps(obj)
+        
+        try:
+            # Get SHA if not provided
+            if not sha:
+                sha_result = self.get_sha(container_name, self.object_files[container_name], branch_name)
+                if not sha_result[0]:
+                    return [
+                        False, 
+                        {
+                            "status_code": 404, 
+                            "status_msg": f"File not found: [{file_path}] in branch [{branch_name}]"
+                        },
+                        sha_result
+                    ]
+                sha = sha_result[2]['sha']
+                
+            # Prepare the API request
+            endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{file_path}"
+            
+            # Base64 encode the content
+            encoded_content = base64.b64encode(content_to_transmit.encode('utf-8')).decode('utf-8')
+            
+            data = {
+                "message": f"Update object [{self.object_files[container_name]}]",
+                "content": encoded_content,
+                "sha": sha,
+                "branch": branch_name
+            }
+            
+            # Make the API request
+            r = requests.put(endpoint, headers=self.headers, data=json.dumps(data))
+            
+            if r.status_code == 200:
+                return [
+                    True, 
+                    {
+                        "status_code": 200, 
+                        "status_msg": f"Wrote object [{self.object_files[container_name]}] to container [{container_name}]"
+                    },
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to write object [{self.object_files[container_name]}] to container [{container_name}]"
+                    }, 
+                    r.json() if r.content else None
+                ]
+        except Exception as e:
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error writing object to [{file_path}]: {str(e)}"
                 }, 
                 str(e)
             ]
