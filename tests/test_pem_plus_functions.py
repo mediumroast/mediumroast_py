@@ -196,9 +196,312 @@ class TestMediumroastForGitHubFunctions(unittest.TestCase):
         print(f"Resulting abstract: {updated_interaction[2][0]['abstract']}")
         print(test_separator)
 
-
-
-
+    @patch('requests.post')
+    def test_github_auth_invalid_credentials(self, mock_post):
+        print('Test GitHubAuth: invalid credentials')
+        print(separator)
+        
+        # Mock a failed authentication response
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.status_code = 401
+        mock_post.return_value.json.return_value = {
+            'message': 'Bad credentials',
+            'documentation_url': 'https://docs.github.com/'
+        }
+        
+        # Test with invalid credentials
+        auth = GitHubAuth(env={
+            'clientId': 'invalid_id', 
+            'appId': 'invalid_app',
+            'installationId': 'invalid_installation',
+            'secretFile': 'nonexistent_file.pem'
+        })
+        
+        # Expect an exception or failure response
+        with self.assertRaises(Exception):
+            auth.get_access_token_pem()
+        
+        print("Successfully detected invalid credentials")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_get_github_repos(self, mock_post):
+        print('Test GitHubFunctions: get_github_repos')
+        print(separator)
+        
+        example_response = {
+            'repositories': [
+                {'name': 'repo1', 'full_name': 'mediumroast/repo1'},
+                {'name': 'repo2', 'full_name': 'mediumroast/repo2'}
+            ]
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        functions = GitHubFunctions(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        repos = functions.get_github_repos()
+        
+        self.assertEqual(repos[1]['repositories'][0]['name'], 'repo1')
+        print(f"Expected repo name: repo1")
+        print(f"Resulting repo name: {repos[1]['repositories'][0]['name']}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_create_company(self, mock_post):
+        print('Test Companies: create_company')
+        print(separator)
+        
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: created object in container [Companies]',
+            'id': '1234567890'
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Companies(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        
+        new_company = {
+            'name': 'Test Company Inc',
+            'industry': 'Technology',
+            'description': 'A test company for unit testing',
+            'website': 'https://testcompany.example.com',
+            'headquarters': 'San Francisco, CA'
+        }
+        
+        result = api_ctl.create_obj(new_company)
+        self.assertEqual(result[0], example_response['result'])
+        self.assertEqual(result[1]['id'], example_response['id'])
+        
+        print(f"Created company ID: {result[1]['id']}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_get_company_by_id(self, mock_post):
+        print('Test Companies: get_by_id')
+        print(separator)
+        
+        company_id = '1234567890'
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: read object from container [Companies]',
+            'company': {
+                'id': company_id,
+                'name': 'Test Company Inc',
+                'industry': 'Technology'
+            }
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Companies(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.get_by_id(company_id)
+        
+        self.assertEqual(result[0], example_response['result'])
+        self.assertEqual(result[1]['company']['id'], company_id)
+        
+        print(f"Retrieved company: {result[1]['company']['name']}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_delete_company(self, mock_post):
+        print('Test Companies: delete_company')
+        print(separator)
+        
+        company_id = '1234567890'
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: deleted object from container [Companies]'
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Companies(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.delete_obj(company_id)
+        
+        self.assertEqual(result[0], example_response['result'])
+        print(f"Successfully deleted company with ID: {company_id}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_create_interaction(self, mock_post):
+        print('Test Interactions: create_interaction')
+        print(separator)
+        
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: created object in container [Interactions]',
+            'id': 'abcdef123456'
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Interactions(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        
+        new_interaction = {
+            'name': 'Test Meeting Notes',
+            'status': 'active',
+            'abstract': 'Notes from the test meeting',
+            'description': 'Detailed discussion about testing strategies',
+            'topics': ['testing', 'automation', 'quality'],
+            'file_size': 1024,
+            'reading_time': 5,
+            'page_count': 3,
+            'content_type': 'text/plain',
+            'word_count': 500,
+            'contact_name': 'John Doe',
+            'company_id': '1234567890'
+        }
+        
+        result = api_ctl.create_obj(new_interaction)
+        self.assertEqual(result[0], example_response['result'])
+        self.assertEqual(result[1]['id'], example_response['id'])
+        
+        print(f"Created interaction ID: {result[1]['id']}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_get_interaction_by_id(self, mock_post):
+        print('Test Interactions: get_by_id')
+        print(separator)
+        
+        interaction_id = 'abcdef123456'
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: read object from container [Interactions]',
+            'interaction': {
+                'id': interaction_id,
+                'name': 'Test Meeting Notes',
+                'status': 'active'
+            }
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Interactions(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.get_by_id(interaction_id)
+        
+        self.assertEqual(result[0], example_response['result'])
+        self.assertEqual(result[1]['interaction']['id'], interaction_id)
+        
+        print(f"Retrieved interaction: {result[1]['interaction']['name']}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_delete_interaction(self, mock_post):
+        print('Test Interactions: delete_interaction')
+        print(separator)
+        
+        interaction_id = 'abcdef123456'
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: deleted object from container [Interactions]'
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Interactions(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.delete_obj(interaction_id)
+        
+        self.assertEqual(result[0], example_response['result'])
+        print(f"Successfully deleted interaction with ID: {interaction_id}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_find_interactions_by_company(self, mock_post):
+        print('Test Interactions: find_by_company')
+        print(separator)
+        
+        company_id = '1234567890'
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: found objects in container [Interactions]',
+            'interactions': [
+                {
+                    'id': 'abcdef123456',
+                    'name': 'Test Meeting Notes',
+                    'company_id': company_id
+                },
+                {
+                    'id': 'ghijkl789012',
+                    'name': 'Follow-up Discussion',
+                    'company_id': company_id
+                }
+            ]
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Interactions(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.find_by_company(company_id)
+        
+        self.assertEqual(result[0], example_response['result'])
+        self.assertEqual(len(result[1]['interactions']), 2)
+        
+        print(f"Found {len(result[1]['interactions'])} interactions for company {company_id}")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_batch_update_interactions(self, mock_post):
+        print('Test Interactions: batch_update')
+        print(separator)
+        
+        updates = {
+            'Test Meeting Notes': {
+                'status': 'completed',
+                'description': 'Updated description'
+            },
+            'Follow-up Discussion': {
+                'status': 'in-progress',
+                'topics': ['updated', 'topics']
+            }
+        }
+        
+        example_response = {
+            'result': True,
+            'message': 'SUCCESS: batch updated objects in container [Interactions]',
+            'updated_count': 2
+        }
+        
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.json.return_value = example_response
+        
+        api_ctl = Interactions(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.batch_update(updates)
+        
+        self.assertEqual(result[0], example_response['result'])
+        self.assertEqual(result[1]['updated_count'], 2)
+        
+        print(f"Successfully batch updated {result[1]['updated_count']} interactions")
+        print(test_separator)
+    
+    @patch('requests.post')
+    def test_error_handling(self, mock_post):
+        print('Test API Error Handling')
+        print(separator)
+        
+        # Mock an error response
+        mock_post.return_value = MagicMock()
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {
+            'result': False,
+            'message': 'Internal server error'
+        }
+        
+        api_ctl = Companies(token_info['token'], os.getenv('YOUR_ORG'), process_name)
+        result = api_ctl.get_all()
+        
+        self.assertFalse(result[0])
+        print(f"Successfully handled error: {result[1]['message']}")
+        print(test_separator)
 
 if __name__ == '__main__':
     unittest.main()
