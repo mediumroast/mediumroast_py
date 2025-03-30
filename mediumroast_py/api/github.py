@@ -843,39 +843,86 @@ class GitHubFunctions:
     def read_objects(self, container_name, branch_name=None):
         """
         Read all objects from a container in a specific branch.
-
+    
         Parameters
         ----------
         container_name : str
             The name of the container from which to read objects.
-        branch_name : str
+        branch_name : str, optional
             The name of the branch where the container is located.
-
+            If not provided, defaults to main branch.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the objects' raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - dict with parsed JSON objects and SHA (or error message)
         """
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            branch_name = branch_name if branch_name else self.main_branch_name
-            file_path = f"{container_name}/{self.object_files[container_name]}"
-            file_contents = repo.get_contents(file_path, ref=branch_name)
-            decoded_content = base64.b64decode(file_contents.content).decode()
+        # Validate container name
+        if container_name not in self.object_files or not self.object_files[container_name]:
             return [
-                True, 
+                False, 
                 {
-                    'status_msg': f"SUCCESS: read objects from container [{container_name}]",
-                    'status_code': 200
+                    'status_code': 400, 
+                    'status_msg': f"Invalid container [{container_name}] or no object file defined"
                 }, 
-                {"mr_json": json.loads(decoded_content), "sha": file_contents.sha}
+                None
             ]
+        
+        branch_name = branch_name if branch_name else self.main_branch_name
+        file_path = f"{container_name}/{self.object_files[container_name]}"
+        
+        try:
+            # Build the endpoint URL for the GitHub contents API
+            endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{file_path}"
+            params = {"ref": branch_name}
+            
+            # Make the API request
+            r = requests.get(endpoint, headers=self.headers, params=params)
+            
+            if r.status_code == 200:
+                content = r.json()
+                # Decode the base64 content
+                if "content" in content and content.get("encoding") == "base64":
+                    decoded_content = base64.b64decode(content["content"]).decode('utf-8')
+                    return [
+                        True, 
+                        {
+                            'status_code': 200,
+                            'status_msg': f"SUCCESS: read objects from container [{container_name}]"
+                        }, 
+                        {
+                            "mr_json": json.loads(decoded_content), 
+                            "sha": content["sha"]
+                        }
+                    ]
+                else:
+                    return [
+                        False, 
+                        {
+                            'status_code': 422,
+                            'status_msg': f"ERROR: Content format unexpected for [{file_path}]"
+                        }, 
+                        content
+                    ]
+            else:
+                return [
+                    False, 
+                    {
+                        'status_code': r.status_code,
+                        'status_msg': f"ERROR: unable to read objects from container [{container_name}]"
+                    }, 
+                    r.json() if r.content else None
+                ]
+                
         except Exception as e:
             return [
                 False, 
                 {
-                    'status_msg': f"ERROR: unable to read objects from container [{container_name}] due to {e}",
-                    'status_code': 423
+                    'status_code': 500,
+                    'status_msg': f"ERROR: unable to read objects from container [{container_name}]: {str(e)}"
                 }, 
                 str(e)
             ]
