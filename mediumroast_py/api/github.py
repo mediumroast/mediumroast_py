@@ -1,4 +1,3 @@
-from github import Github
 import base64
 import json
 import time
@@ -16,12 +15,20 @@ __status__ = "Production"
 
 class GitHubFunctions:
     """
-    A class used to interact with GitHub's API.
-
-    This class encapsulates the functionality for interacting with GitHub's API,
-    including methods for getting user information, repository information, and
-    managing lock files.
-
+    A class that provides structured data storage using GitHub's REST API.
+    
+    This class implements a transaction-based approach to store and manage 
+    structured data in GitHub repositories. It uses containers (directories) 
+    with JSON files to store collections of objects, with locking mechanisms 
+    to prevent concurrent modifications.
+    
+    Core Features:
+    - REST API direct integration with GitHub (no PyGithub dependency)
+    - Transaction-based operations with catch/release pattern
+    - Container locking for concurrent access control
+    - Structured JSON data storage
+    - CRUD operations for objects and files
+    
     Attributes
     ----------
     token : str
@@ -32,14 +39,24 @@ class GitHubFunctions:
         The name of the repository on GitHub.
     repo_desc : str
         The description of the repository on GitHub.
-    github_instance : Github
-        An instance of the Github class from the PyGithub library.
     lock_file_name : str
-        The name of the lock file.
+        The name of the lock file used for container locking.
     main_branch_name : str
         The name of the main branch in the repository.
     object_files : dict
-        A dictionary mapping object types to their corresponding file names.
+        A dictionary mapping container names to their corresponding JSON files.
+    headers : dict
+        HTTP headers including authorization for GitHub API requests.
+    
+    Return Format
+    ----------
+    Most methods return a standardized list format:
+    [success_boolean, status_dict, data_or_error]
+    
+    Where:
+    - success_boolean: True/False indicating operation success
+    - status_dict: Contains 'status_code' (HTTP status) and 'status_msg' (description)
+    - data_or_error: The requested data or error information
     """
     def __init__(self, token, org, process_name):
         """
@@ -58,7 +75,6 @@ class GitHubFunctions:
         self.org_name = org
         self.repo_name = f"{org}_discovery"
         self.repo_desc = "A repository for all of the mediumroast.io application assets."
-        self.github_instance = Github(token)
         self.lock_file_name = f"{process_name}.lock"
         self.main_branch_name = 'main'
         self.object_files = {
@@ -504,59 +520,83 @@ class GitHubFunctions:
     def merge_branch_to_main(self, branch_name, commit_description='Performed CRUD operation on objects.'):
         """
         Merge a branch into the main branch.
-
+    
         Parameters
         ----------
         branch_name : str
             The name of the branch to be merged.
         commit_description : str, optional
             The description of the commit, by default 'Performed CRUD operation on objects.'
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the pull request's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - pull request's data or error information
         """
         try: 
+            # Step 1: Create a pull request
             pull_endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/pulls"
             pull_data = {
-                "title":commit_description,
-                "body":commit_description,
-                "head":f"{branch_name}", # Branch name
-                "base":f"{self.main_branch_name}"} # main branch
+                "title": commit_description,
+                "body": commit_description,
+                "head": branch_name,
+                "base": self.main_branch_name
+            }
+            
             r = requests.post(pull_endpoint, headers=self.headers, data=json.dumps(pull_data))
+            
             if r.status_code != 201:
                 return [
                     False, 
-                    {'status_code': r.status_code, 'status_msg': f"Pull request or branch merge failed due to [{r.json()}]"}, 
-                    None
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to create pull request for branch [{branch_name}]"
+                    }, 
+                    r.json() if r.content else None
                 ]
-            else:
-                pull_number = r.json()['number']
-        except Exception as e:
-            return [False, f'ERROR: unable to create pull request: [{str(e)}]', str(e)]
-
-        try: 
+                
+            pull_number = r.json()['number']
+            
+            # Step 2: Merge the pull request
             merge_endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/pulls/{pull_number}/merge"
             merge_data = {
-                "commit_title":commit_description,
-                "commit_message":commit_description}
+                "commit_title": commit_description,
+                "commit_message": commit_description
+            }
+            
             r = requests.put(merge_endpoint, headers=self.headers, data=json.dumps(merge_data))
+            
             if r.status_code != 200:
                 return [
                     False, 
-                    {'status_code': r.status_code, 'status_msg': f"Pull request or branch merge failed due to [{r.json()}]"}, 
-                    None
-                ]
-            else:
-                return [
-                    True, 
-                    {'status_code': r.status_code, 'status_msg': f'Operation successful merged branch [{branch_name}] into [{self.main_branch_name}]'}, 
-                    r.json()
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to merge pull request #{pull_number}"
+                    }, 
+                    r.json() if r.content else None
                 ]
                 
+            return [
+                True, 
+                {
+                    "status_code": r.status_code, 
+                    "status_msg": f"Successfully merged branch [{branch_name}] into [{self.main_branch_name}]"
+                }, 
+                r.json()
+            ]
+                    
         except Exception as e:
-            return [False, f'ERROR: unable to merge: [{str(e)}]', str(e)]
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error during branch merge: {str(e)}"
+                }, 
+                str(e)
+            ]
 
 
     def lock_container(self, container_name, branch_name=None):
