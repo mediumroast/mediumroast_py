@@ -72,178 +72,434 @@ class GitHubFunctions:
                     "Authorization": f"token {self.token}",
                     "X-GitHub-Api-Version": "2022-11-28"}
 
-    def get_sha(self, container_name, file_name, branch_name):
+    def get_sha(self, container_name, file_name, branch_name=None):
         """
         Get the SHA of a specific file in a specific branch.
-
+    
         Parameters
         ----------
         container_name : str
             The name of the container (directory) in the repository.
         file_name : str
             The name of the file for which to get the SHA.
-        branch_name : str
+        branch_name : str, optional
             The name of the branch in which the file is located.
-
+            If not provided, defaults to main branch.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a dictionary with status information, and the SHA of the file (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - file content data with SHA (or error message in case of failure)
         """
-        endpoint = f'https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{container_name}/{file_name}?ref={branch_name}'
-        r = requests.get(endpoint, headers=self.headers)
-        if r.status_code == 200:
-            content = json.loads(r.content)
-            return [True, {'status_code': r.status_code, 'status_msg': f'captured sha for [{container_name}/{file_name}]'}, content]
-        else:
-            return [False, {'status_code': r.status_code, 'status_msg': f'unable to capture sha for [{container_name}/{file_name}]'}]
+        branch_name = branch_name if branch_name else self.main_branch_name
+        
+        # Handle special case where container is root and file_name is actually a branch name
+        path = f"{container_name}/{file_name}" if container_name else file_name
+        
+        try:
+            endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{path}"
+            params = {"ref": branch_name}
+            
+            r = requests.get(endpoint, headers=self.headers, params=params)
+            
+            if r.status_code == 200:
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Successfully captured SHA for [{path}]"
+                    }, 
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to capture SHA for [{path}]. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
+        except Exception as e:
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error capturing SHA for [{path}]: {str(e)}"
+                }, 
+                str(e)
+            ]
 
     def get_user(self):
         """
         Get information about the current user.
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the user's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - user data or error information
         """
-        endpoint = f'https://api.github.com/user'
-        r = requests.get(endpoint, headers=headers)
-        if r.status_code == 200:
-            content = json.loads(r.content)
-            return [True, {'status_code': r.status_code, 'status_msg': f'SUCCESS: able to capture current user info'}, content]
-        else:
-            return [False, {'status_code': r.status_code, 'status_msg': f'ERROR: unable to capture current user info'}, content]
+        endpoint = "https://api.github.com/user"
         
+        try:
+            r = requests.get(endpoint, headers=self.headers)
+            
+            if r.status_code == 200:
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": "Successfully retrieved current user information"
+                    }, 
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to retrieve user information. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
+        except Exception as e:
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error retrieving user information: {str(e)}"
+                }, 
+                str(e)
+            ]      
+
     def get_all_users(self):
         """
         Get all users who are collaborators on the repository.
-        Currently works with PAT tokens.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and a list of users' raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - list of collaborator data or error information
         """
-        endpoint = f'https://api.github.com/repos/{self.org_name}/{self.repo_name}/collaborators'
-        r = requests.get(endpoint, headers=self.headers)
-        if r.status_code == 200:
-            content = json.loads(r.content)
-            return [True, {'status_code': r.status_code, 'status_msg': f'SUCCESS: able to capture info for all users'}, content]
-        else:
-            return [False, f'ERROR: unable to capture info for all users from: {self.org_name/self.repo_name}', content]
+        endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/collaborators"
+        
+        try:
+            r = requests.get(endpoint, headers=self.headers)
+            
+            if r.status_code == 200:
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": "Successfully retrieved repository collaborators"
+                    }, 
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to retrieve collaborators. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
+        except Exception as e:
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error retrieving collaborators: {str(e)}"
+                }, 
+                str(e)
+            ]
 
-    def create_repository(self, repo = None, desc = None):
+    def create_repository(self, repo=None, desc=None):
         """
         Create a new repository in the organization.
-
-        The repository name and description are taken from the instance attributes `self.repo_name` and `self.repo_desc`.
-
+    
+        Parameters
+        ----------
+        repo : str, optional
+            The name of the repository to create.
+            If None, uses self.repo_name.
+        desc : str, optional
+            The description for the repository.
+            If None, uses self.repo_desc.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, and the newly created repository's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - repository data or error information
         """
         endpoint = f'https://api.github.com/orgs/{self.org_name}/repos'
-
-        if repo is None:
-            repo = self.repo_name
-        if desc is None:
-            desc = self.repo_desc
-
-        data = {
-            "name":f"{repo}",
-            "description":f"{desc}",
-            "private":True,
-            "has_issues":True,
-            "has_projects":True,
-            "has_wiki":True}
-        
-        r = requests.post(endpoint, headers=self.headers, data=json.dumps(data))
-        if r.status_code == 201:
-            return [True, repo]
-        else:
-            return [False, {"response":r.json()}]
     
+        try:
+            # Use provided values or defaults
+            repo_name = repo if repo is not None else self.repo_name
+            repo_desc = desc if desc is not None else self.repo_desc
+            
+            data = {
+                "name": repo_name,
+                "description": repo_desc,
+                "private": True,
+                "has_issues": True,
+                "has_projects": True,
+                "has_wiki": True
+            }
+            
+            r = requests.post(endpoint, headers=self.headers, data=json.dumps(data))
+            
+            if r.status_code == 201:  # 201 Created
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Successfully created repository [{repo_name}]"
+                    }, 
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to create repository [{repo_name}]. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
+        except Exception as e:
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error creating repository: {str(e)}"
+                }, 
+                str(e)
+            ]
+
     def get_actions_billings(self):
         """
         Get the actions billings information for the organization.
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the actions billings information as a dictionary (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - actions billings information or error data
         """
         endpoint = f"https://api.github.com/orgs/{self.org_name}/settings/billing/actions"
-        r = requests.get(endpoint, headers=self.headers)
-        if r.status_code == 200:
-            return [True, 'SUCCESS: able to capture actions billings info', r.json()]
-        else:
-            return [False, f'ERROR: unable to capture actions billings info due to [{r.status_code}]', None]
+        
+        try:
+            r = requests.get(endpoint, headers=self.headers)
+            
+            if r.status_code == 200:
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": "Successfully retrieved actions billing information"
+                    }, 
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to retrieve actions billing information. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
+        except Exception as e:
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error retrieving actions billing information: {str(e)}"
+                }, 
+                str(e)
+            ]
 
     def get_storage_billings(self):
         """
         Get the storage billings information for the organization.
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the storage billings information as a dictionary (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - storage billings information or error data
         """
         endpoint = f"https://api.github.com/orgs/{self.org_name}/settings/billing/shared-storage"
+        
         try:
             r = requests.get(endpoint, headers=self.headers)
-
+            
             if r.status_code == 200:
-                return [True, 'SUCCESS: able to capture storage billings info', r.json()]
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": "Successfully retrieved storage billing information"
+                    }, 
+                    r.json()
+                ]
             else:
-                return [False, f'ERROR: unable to capture storage billings info due to [{r.status_code}]', None]
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to retrieve storage billing information. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
         except Exception as e:
-            return [False, f'ERROR: unable to capture storage billings info due to [{str(e)}]', str(e)]
-    
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error retrieving storage billing information: {str(e)}"
+                }, 
+                str(e)
+            ]
     
     def get_github_org(self):
         """
         Get the organization's information.
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, and the organization's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - organization data or error information
         """
         endpoint = f"https://api.github.com/orgs/{self.org_name}"
+        
         try:
             r = requests.get(endpoint, headers=self.headers)
-            return [True, r.json()]
+            
+            if r.status_code == 200:
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Successfully retrieved organization information for [{self.org_name}]"
+                    }, 
+                    r.json()
+                ]
+            else:
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"Failed to retrieve organization information. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
         except Exception as e:
-            return [False, str(e)]
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"Error retrieving organization information: {str(e)}"
+                }, 
+                str(e)
+            ]
         
-    def create_branch_from_main(self):
+    def create_branch_from_main(self, branch_name=None):
         """
         Create a new branch from the main branch.
-
+    
         Parameters
         ----------
-        branch_name : str
+        branch_name : str, optional
             The name of the new branch to be created.
-
+            If not provided, a timestamp-based branch name will be generated.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the new branch's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - new branch's data (or error message in case of failure)
         """
         endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/git/refs"
-        sha = self.get_commit_sha()[1]['sha']
-        branch_name = str(int(time.time()))
-        data = {"ref": f"refs/heads/{branch_name}", "sha": sha}
+        
         try:
+            # Get the SHA of the latest commit on main branch
+            sha_response = self.get_sha("", self.main_branch_name, branch_name=self.main_branch_name)
+            if not sha_response[0]:
+                return [
+                    False, 
+                    {
+                        "status_code": 500,
+                        "status_msg": f"Failed to get SHA of main branch: {sha_response[1]['status_msg']}"
+                    }, 
+                    sha_response
+                ]
+            
+            sha = sha_response[2]['object']['sha']
+            
+            # Generate branch name if not provided
+            if not branch_name:
+                branch_name = str(int(time.time()))
+            
+            # Prepare data for branch creation
+            data = {
+                "ref": f"refs/heads/{branch_name}", 
+                "sha": sha
+            }
+            
+            # Create the branch
             r = requests.post(endpoint, headers=self.headers, data=json.dumps(data))
+            
             if r.status_code == 201:
-                return [True, f"SUCCESS: created branch [{branch_name}]", r.json()]
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code,
+                        "status_msg": f"Successfully created branch [{branch_name}]"
+                    }, 
+                    r.json()
+                ]
             else:
-                return [False, {"response": r.json()}]
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code,
+                        "status_msg": f"Failed to create branch [{branch_name}]. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
         except Exception as e:
-            return [False, f"FAILED: unable to create branch [{branch_name}] due to [{str(e)}]", None]
-
+            return [
+                False, 
+                {
+                    "status_code": 500,
+                    "status_msg": f"Error creating branch [{branch_name}]: {str(e)}"
+                }, 
+                str(e)
+            ]
 
     def merge_branch_to_main(self, branch_name, commit_description='Performed CRUD operation on objects.'):
         """
@@ -303,37 +559,66 @@ class GitHubFunctions:
             return [False, f'ERROR: unable to merge: [{str(e)}]', str(e)]
 
 
-    def lock_container(self, container_name):
+    def lock_container(self, container_name, branch_name=None):
         """
         Lock a container by creating a lock file in it.
-
+    
         Parameters
         ----------
         container_name : str
             The name of the container to lock.
-        branch_name : str
+        branch_name : str, optional
             The name of the branch where the container is located.
-
+            If not provided, defaults to main branch.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the lock file's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - lock file's response data (or error message in case of failure)
         """
+        branch_name = branch_name if branch_name else self.main_branch_name
         lock_file = f"{container_name}/{self.lock_file_name}"
         endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{lock_file}"
+        
         data = {
-            "message":f"Locking container [{container_name}] with [{lock_file}].",
-            "content":"bXkgbmV3IGZpbGUgY29udGVudHM="
+            "message": f"Locking container [{container_name}] with [{lock_file}].",
+            "content": "bXkgbmV3IGZpbGUgY29udGVudHM=",  # Base64 for "my new file contents"
+            "branch": branch_name
         }
+        
         try:
             r = requests.put(endpoint, headers=self.headers, data=json.dumps(data))
-            if r.status_code != 200 | r.status_code != 201:
-                return [True, {"status_code": r.status_code,"status_msg": f"Locked the container [{container_name}]"}, r.json()]
+            
+            if r.status_code in [200, 201]:  # 200 for update, 201 for create
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code,
+                        "status_msg": f"Locked the container [{container_name}]"
+                    }, 
+                    r.json()
+                ]
             else:
-                return [True, {"status_code": r.status_code,"status_msg": f"Locked the container [{container_name}]"}, r.json()]
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code,
+                        "status_msg": f"Failed to lock container [{container_name}]. Status code: {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
         except Exception as e:
-            return [False, {"status_msg": f"FAILED: Unable to lock the container [{container_name}]"}]
-
+            return [
+                False, 
+                {
+                    "status_code": 500,
+                    "status_msg": f"Error locking container [{container_name}]: {str(e)}"
+                }, 
+                str(e)
+            ]
 
     def check_for_lock(self, container_name):
         """
@@ -1089,128 +1374,482 @@ class GitHubFunctions:
             processed_objects
         ]
 
-    def delete_object(self, container_name, file_name, branch_name, sha):
+    def delete_object(self, container_name, object_name, branch_name=None):
         """
-        Delete an object from a container in a specific branch.
-
+        Delete an object from a container's JSON file in a specific branch.
+    
         Parameters
         ----------
         container_name : str
             The name of the container from which to delete the object.
-        obj : dict
-            The object to delete.
-        branch_name : str
+        object_name : str
+            The name of the object to delete.
+        branch_name : str, optional
             The name of the branch where the object is located.
-
+            If not provided, defaults to main branch.
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the delete response's raw data (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - updated objects or deletion response
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-            file_path = f"{container_name}/{file_name}"
-            file_contents = repo.get_contents(file_path, ref=branch_name)
-            delete_response = repo.delete_file(file_path, f"Delete object [{file_name}]", file_contents.sha, branch=branch_name)
-            return [True, { 'status_code': 200, 'status_msg': f'deleted object [{file_name}] from container [{container_name}]' }, delete_response.raw_data]
-        except Exception as e:
-            return [False, { 'status_code': 503, 'status_msg': f'unable to delete object [{file_name}] from container [{container_name}]' }, str(e)]
+        branch_name = branch_name if branch_name else self.main_branch_name
         
+        # Validate container name
+        if container_name not in self.object_files or not self.object_files[container_name]:
+            return [
+                False, 
+                {
+                    "status_code": 400, 
+                    "status_msg": f"Invalid container [{container_name}] or no object file defined"
+                },
+                None
+            ]
+        
+        try:
+            # Lock the container first
+            repo_metadata = {
+                "containers": {container_name: {}}, 
+                "branch": {}
+            }
+            
+            # Get lock on container
+            caught = self.catch_container(repo_metadata)
+            if not caught[0]:
+                return [
+                    False,
+                    {
+                        'status_code': 503,
+                        'status_msg': caught[1]['status_msg']
+                    },
+                    caught
+                ]
+            
+            # Get current objects from container
+            current_objects = caught[2]['containers'][container_name]['objects']
+            
+            # Find and remove the target object
+            found_object = None
+            updated_objects = []
+            
+            for obj in current_objects:
+                if obj.get('name') == object_name:
+                    found_object = obj
+                else:
+                    updated_objects.append(obj)
+            
+            if not found_object:
+                # Release the container since we're not making changes
+                self.release_container(caught[2], f"Object [{object_name}] not found for deletion")
+                return [
+                    False,
+                    {
+                        'status_code': 404,
+                        'status_msg': f"Object [{object_name}] not found in container [{container_name}]"
+                    },
+                    None
+                ]
+            
+            # Write updated objects (without the deleted one)
+            write_response = self.write_object(
+                container_name, 
+                updated_objects,
+                caught[2]['branch']['name'],
+                caught[2]['containers'][container_name]['object_sha']
+            )
+            
+            if not write_response[0]:
+                return [
+                    False,
+                    {
+                        'status_code': write_response[1]['status_code'],
+                        'status_msg': f"Failed to update objects after deleting [{object_name}]"
+                    },
+                    write_response
+                ]
+            
+            # Release the container with changes
+            commit_msg = f"Deleted object [{object_name}] from container [{container_name}]"
+            released = self.release_container(caught[2], commit_msg)
+            
+            if not released[0]:
+                return [
+                    False,
+                    {
+                        'status_code': 503,
+                        'status_msg': f"Object deleted but failed to release container. Check branch: {caught[2]['branch']['name']}"
+                    },
+                    released
+                ]
+            
+            return [
+                True,
+                {
+                    'status_code': 200,
+                    'status_msg': f"Successfully deleted object [{object_name}] from container [{container_name}]"
+                },
+                found_object
+            ]
+            
+        except Exception as e:
+            return [
+                False,
+                {
+                    'status_code': 500,
+                    'status_msg': f"Error deleting object [{object_name}] from container [{container_name}]: {str(e)}"
+                },
+                str(e)
+            ]   
+        
+
     def create_containers(self, containers=['Studies', 'Companies', 'Interactions']):
         """
         Create multiple containers (directories) in the repository.
-
+    
         Parameters
         ----------
         containers : list, optional
             The names of the containers to create, by default ['Studies', 'Companies', 'Interactions'].
-
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, and a list of responses for each container creation (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - list of responses for each container creation
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        responses = []
-        empty_json = base64.b64encode(json.dumps([]).encode()).decode()
-        for container_name in containers:
-            try:
-                repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-                file_path = f"{container_name}/{container_name}.json"
-                response = repo.create_file(file_path, f"Create container [{container_name}]", empty_json)
-                responses.append(response)
-            except Exception as e:
-                responses.append(str(e))
-        return [all(isinstance(res, Github.GitCommit.GitCommit) for res in responses), responses]
+        responses = {}
+        success_count = 0
+        
+        try:
+            for container_name in containers:
+                # Check if the container object file is defined
+                if container_name not in self.object_files or not self.object_files[container_name]:
+                    responses[container_name] = {
+                        'status_code': 400,
+                        'status_msg': f"Container [{container_name}] has no object file defined"
+                    }
+                    continue
+                    
+                # Empty JSON array for new container
+                empty_json = json.dumps([])
+                
+                # Get the file path for the container's JSON file
+                file_path = f"{container_name}/{self.object_files[container_name]}"
+                
+                # Base64 encode the empty JSON array
+                encoded_content = base64.b64encode(empty_json.encode('utf-8')).decode('utf-8')
+                
+                # Prepare the API request
+                endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{file_path}"
+                data = {
+                    "message": f"Create container [{container_name}]",
+                    "content": encoded_content,
+                    "branch": self.main_branch_name
+                }
+                
+                # Make the API request to create the file
+                r = requests.put(endpoint, headers=self.headers, data=json.dumps(data))
+                
+                if r.status_code == 201:  # 201 Created
+                    success_count += 1
+                    responses[container_name] = {
+                        'status_code': r.status_code,
+                        'status_msg': f"Created container [{container_name}]",
+                        'data': r.json()
+                    }
+                else:
+                    responses[container_name] = {
+                        'status_code': r.status_code,
+                        'status_msg': f"Failed to create container [{container_name}]",
+                        'error': r.json() if r.content else None
+                    }
+            
+            # Check if all containers were created successfully
+            all_success = success_count == len(containers)
+            status_code = 200 if all_success else 207  # 207 Multi-Status for partial success
+            status_msg = f"Created {success_count}/{len(containers)} containers"
+            
+            return [
+                all_success,
+                {
+                    'status_code': status_code,
+                    'status_msg': status_msg
+                },
+                responses
+            ]
+            
+        except Exception as e:
+            return [
+                False,
+                {
+                    'status_code': 500,
+                    'status_msg': f"Error creating containers: {str(e)}"
+                },
+                str(e)
+            ]
     
     def catch_container(self, repo_metadata):
         """
-        Catch (lock) multiple containers (directories) in the repository.
-
+        Catch (lock) multiple containers and create a working branch for isolated changes.
+    
+        This function implements a transaction-like pattern:
+        1. Check if all containers are available (not locked)
+        2. Create a working branch for isolated changes
+        3. Lock all containers to prevent concurrent modifications
+        4. Read current objects from each container
+    
         Parameters
         ----------
         repo_metadata : dict
-            The metadata of the repository, including the branch name, branch SHA, and container information.
-
+            Dictionary with container information in the format:
+            {
+                "containers": {
+                    "container_name1": {},
+                    "container_name2": {},
+                    ...
+                },
+                "branch": {}
+            }
+    
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a dictionary with status code and message, and a list of responses for each container catch (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - repository metadata with branch and container information
         """
-        for container in repo_metadata['containers']:
-            lock_exists = self.check_for_lock(container)
-            if lock_exists[0]:
-                return [False, {'status_code': 503, 'status_msg': f'the container [{container}] is locked unable and cannot perform creates, updates or deletes on objects.'}, lock_exists]
+        if not repo_metadata or not repo_metadata.get('containers'):
+            return [
+                False, 
+                {
+                    'status_code': 400, 
+                    'status_msg': "No containers specified in repo_metadata"
+                }, 
+                None
+            ]
+        
+        containers = list(repo_metadata['containers'].keys())
+        locked_containers = []  # Track which containers we've locked for rollback
+        
+        try:
+            # Step 1: Check if any containers are already locked
+            for container in containers:
+                lock_exists = self.check_for_lock(container)
+                if lock_exists[0]:
+                    return [
+                        False, 
+                        {
+                            'status_code': 423,  # 423 Locked
+                            'status_msg': f"Container [{container}] is already locked. Cannot perform operations."
+                        }, 
+                        lock_exists
+                    ]
+            
+            # Step 2: Create a working branch first
+            branch_created = self.create_branch_from_main()
+            if not branch_created[0]:
+                return [
+                    False, 
+                    {
+                        'status_code': 500,
+                        'status_msg': "Unable to create working branch for isolated changes"
+                    }, 
+                    branch_created
+                ]
+            
+            # Extract branch information
+            branch_name = branch_created[2]['ref'].split('/')[-1]  # Get just the branch name from refs/heads/name
+            branch_sha = branch_created[2]['object']['sha']
+            
+            repo_metadata['branch'] = {
+                'name': branch_name,
+                'sha': branch_sha
+            }
+            
+            # Step 3: Lock all containers in the working branch
+            for container in containers:
+                locked = self.lock_container(container)
+                if not locked[0]:
+                    # Rollback: unlock any containers we've already locked
+                    self._rollback_container_locks(locked_containers)
+                    return [
+                        False, 
+                        {
+                            'status_code': 500,
+                            'status_msg': f"Failed to lock container [{container}]. Operation aborted."
+                        }, 
+                        locked
+                    ]
+                    
+                # Extract lock SHA from response
+                if isinstance(locked[2], dict) and 'content' in locked[2] and 'sha' in locked[2]['content']:
+                    lock_sha = locked[2]['content']['sha']
+                else:
+                    # Handle different response formats
+                    lock_sha = locked[2].get('sha', None)
+                    
+                repo_metadata['containers'][container]['lockSha'] = lock_sha
+                locked_containers.append(container)
+            
+            # Step 4: Read objects from all containers
+            for container in containers:
+                if container not in self.object_files or not self.object_files[container]:
+                    continue  # Skip containers with no associated object file
+                    
+                read_response = self.read_objects(container, branch_name)
+                if not read_response[0]:
+                    # Rollback: unlock all containers
+                    self._rollback_container_locks(locked_containers)
+                    return [
+                        False, 
+                        {
+                            'status_code': 500,
+                            'status_msg': f"Failed to read objects from container [{container}]. Operation aborted."
+                        }, 
+                        read_response
+                    ]
+                    
+                repo_metadata['containers'][container]['object_sha'] = read_response[2]['sha']
+                repo_metadata['containers'][container]['objects'] = read_response[2]['mr_json']
+            
+            return [
+                True, 
+                {
+                    'status_code': 200, 
+                    'status_msg': f"Successfully caught {len(containers)} containers for modification."
+                }, 
+                repo_metadata
+            ]
+            
+        except Exception as e:
+            # Rollback any locks if something unexpected happened
+            self._rollback_container_locks(locked_containers)
+            return [
+                False, 
+                {
+                    'status_code': 500,
+                    'status_msg': f"Unexpected error during container catch: {str(e)}"
+                }, 
+                str(e)
+            ]
+        
+    def _rollback_container_locks(self, locked_containers):
+        """
+        Helper method to unlock containers during error handling.
+        
+        Parameters
+        ----------
+        locked_containers : list
+            List of container names to unlock
+        """
+        for container in locked_containers:
+            try:
+                self.unlock_container(container)
+            except Exception:
+                # Just log and continue with next container
+                print(f"Warning: Failed to unlock container {container} during rollback")
 
-        for container in repo_metadata['containers']:
-            locked = self.lock_container(container)
-            if not locked[0]:
-                return [False, {'status_code': 503, 'status_msg': f'unable to lock [{container}] and cannot perform creates, updates or deletes on objects.'}, locked]
-            repo_metadata['containers'][container]['lockSha'] = locked[2]['commit'].sha
-
-        branch_created = self.create_branch_from_main()
-        if not branch_created[0]:
-            return [False, {'status_code': 503, 'status_msg': 'unable to create new branch'}, branch_created]
-        repo_metadata['branch'] = {
-            'name': branch_created[2]['ref'],
-            'sha': branch_created[2]['object']['sha']
-        }
-
-        for container in repo_metadata['containers']:
-            read_response = self.read_objects(container)
-            if not read_response[0]:
-                return [False, {'status_code': 503, 'status_msg': f'Unable to read the source objects [{container}/{self.object_files[container]}].'}, read_response]
-            repo_metadata['containers'][container]['object_sha'] = read_response[2]['sha']
-            repo_metadata['containers'][container]['objects'] = read_response[2]['mr_json']
-
-        return [True, {'status_code': 200, 'status_msg': f"{len(repo_metadata['containers'])} containers are ready for use."}, repo_metadata]
-    
     def release_container(self, repo_metadata, commit_description=None):
         """
-        Release (unlock) multiple containers (directories) in the repository.
-
+        Release (unlock) multiple containers and merge changes to main.
+        
+        This function is the counterpart to catch_container and completes the
+        transaction by:
+        1. Merging the working branch to main
+        2. Unlocking all containers that were previously locked
+        
         Parameters
         ----------
         repo_metadata : dict
-            The metadata of the repository, including the branch name, branch SHA, and container information.
-
+            The metadata of the repository from catch_container, including:
+            - branch information (name and SHA)
+            - container information with lock details
+        commit_description : str, optional
+            Description for the commit/merge, by default None
+            
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a dictionary with status code and message, and a list of responses for each container release (or the error message in case of failure).
+            A list containing:
+            - boolean indicating success or failure
+            - dict with status_code and status_msg
+            - dict with responses for each operation
         """
-        merge_response = self.merge_branch_to_main(repo_metadata['branch']['name'], commit_description)
-        if not merge_response[0]:
-            return [False, {'status_code': 503, 'status_msg': 'Unable to merge the branch to main.'}, merge_response]
-
-        for container in repo_metadata['containers']:
-            branch_unlocked = self.unlock_container(container, repo_metadata['containers'][container]['lockSha'], repo_metadata['branch']['name'])
-            if not branch_unlocked[0]:
-                return [False, {'status_code': 503, 'status_msg': f"Unable to unlock the container, objects may have been written please check [{container}] for objects and the lock file."}, branch_unlocked]
-            main_unlocked = self.unlock_container(container, repo_metadata['containers'][container]['lockSha'])
-            if not main_unlocked[0]:
-                return [False, {'status_code': 503, 'status_msg': f"Unable to unlock the container, objects may have been written please check [{container}] for objects and the lock file."}, main_unlocked]
-
-        return [True, {'status_code': 200, 'status_msg': f"Released [{len(repo_metadata['containers'])}] containers."}, None]
-
+        # Validate input
+        if not repo_metadata or 'branch' not in repo_metadata or 'containers' not in repo_metadata:
+            return [
+                False, 
+                {
+                    'status_code': 400, 
+                    'status_msg': "Invalid repo_metadata structure"
+                }, 
+                None
+            ]
+            
+        responses = {
+            'merge': None,
+            'unlocks': {}
+        }
+        
+        try:
+            # Step 1: Merge branch to main
+            branch_name = repo_metadata['branch']['name']
+            commit_msg = commit_description or f"Release containers: {', '.join(repo_metadata['containers'].keys())}"
+            merge_response = self.merge_branch_to_main(branch_name, commit_msg)
+            responses['merge'] = merge_response
+            
+            if not merge_response[0]:
+                return [
+                    False, 
+                    {
+                        'status_code': 503, 
+                        'status_msg': f"Unable to merge branch [{branch_name}] to main"
+                    }, 
+                    responses
+                ]
+            
+            # Step 2: Unlock all containers in main branch (after merge)
+            all_success = True
+            
+            for container in repo_metadata['containers'].keys():
+                # Unlock in main branch
+                unlocked = self.unlock_container(container)
+                responses['unlocks'][container] = unlocked
+                
+                if not unlocked[0]:
+                    all_success = False
+                    
+            if not all_success:
+                return [
+                    False, 
+                    {
+                        'status_code': 207,  # 207 Multi-Status (partial success)
+                        'status_msg': 'Changes were merged but some containers could not be unlocked'
+                    }, 
+                    responses
+                ]
+                
+            return [
+                True, 
+                {
+                    'status_code': 200, 
+                    'status_msg': f"Successfully released {len(repo_metadata['containers'])} containers"
+                }, 
+                responses
+            ]
+            
+        except Exception as e:
+            return [
+                False, 
+                {
+                    'status_code': 500, 
+                    'status_msg': f"Unexpected error during container release: {str(e)}"
+                }, 
+                str(e)
+            ]
