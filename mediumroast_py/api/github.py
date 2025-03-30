@@ -90,12 +90,6 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a dictionary with status information, and the SHA of the file (or the error message in case of failure).
         """
-        # try:
-        #     repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-        #     contents = repo.get_contents(f"{container_name}/{file_name}", ref=branch_name)
-        #     return [True, {'status_code': 200, 'status_msg': f'captured sha for [{container_name}/{file_name}]'}, contents.sha]
-        # except Exception as e:
-        #     return [False, {'status_code': 500, 'status_msg': f'unable to capture sha for [{container_name}/{file_name}] due to [{str(e)}]'}, str(e)]
         endpoint = f'https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{container_name}/{file_name}?ref={branch_name}'
         r = requests.get(endpoint, headers=self.headers)
         if r.status_code == 200:
@@ -113,12 +107,6 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the user's raw data (or the error message in case of failure).
         """
-        # return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        # try:
-        #     user = self.github_instance.get_user()
-        #     return [True, 'SUCCESS: able to capture current user info', user.raw_data]
-        # except Exception as e:
-        #     return [False, f'ERROR: unable to capture current user info due to [{str(e)}]', str(e)]
         endpoint = f'https://api.github.com/user'
         r = requests.get(endpoint, headers=headers)
         if r.status_code == 200:
@@ -155,13 +143,6 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, and the newly created repository's raw data (or the error message in case of failure).
         """
-        # return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
-        # try:
-        #     org = self.github_instance.get_organization(self.org_name)
-        #     repo = org.create_repo(self.repo_name, description=self.repo_desc, private=True)
-        #     return [True, repo]
-        # except Exception as e:
-        #     return [False, str(e)]
         endpoint = f'https://api.github.com/orgs/{self.org_name}/repos'
 
         if repo is None:
@@ -250,14 +231,6 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the new branch's raw data (or the error message in case of failure).
         """
-        # branch_name = str(int(time.time()))
-        # try:
-        #     repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
-        #     main_branch = repo.get_branch(self.main_branch_name)
-        #     ref = repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
-        #     return [True, f"SUCCESS: created branch [{branch_name}]", ref.raw_data]
-        # except Exception as e:
-        #     return [False, f"FAILED: unable to create branch [{branch_name}] due to [{str(e)}]", None]
         endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/git/refs"
         sha = self.get_commit_sha()[1]['sha']
         branch_name = str(int(time.time()))
@@ -574,14 +547,6 @@ class GitHubFunctions:
                 return [False, {'status_code': e.response.status_code, 'status_msg': error_msg}]
             return [False, {'status_code': 500, 'status_msg': error_msg}]
 
-    # def _re_encode_download_url_orig(self, url, original_file_name):
-    #     url_parts = url.split('/')
-    #     last_part = url_parts.pop()
-    #     url_parts.pop()
-    #     alt_last_part = last_part.split('?')
-    #     query_params = alt_last_part[-1] if len(alt_last_part) > 1 else ''
-    #     return f"{'/'.join(url_parts)}/{original_file_name}{'?' + query_params if query_params else ''}"
-
     def _re_encode_download_url(self, url, original_file_name):
         """
         Re-encode a GitHub download URL by replacing the filename with a properly encoded version.
@@ -721,19 +686,60 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the write response's raw data (or the error message in case of failure).
         """
-        return [False, f'initial port completed but implementation unconfirmed, untested and unsupported', None]
         try:
-            repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
+            # Construct the file path and API endpoint
             file_path = f"{container_name}/{file_name}"
-            blob = base64.b64encode(blob.encode()).decode()
+            endpoint = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{file_path}"
+            
+            # Ensure blob is properly encoded as base64
+            if isinstance(blob, str):
+                blob = blob.encode('utf-8')
+            elif not isinstance(blob, bytes):
+                blob = str(blob).encode('utf-8')
+                
+            encoded_content = base64.b64encode(blob).decode('utf-8')
+            
+            # Prepare the request data
+            data = {
+                "message": f"{'Update' if sha else 'Create'} object [{file_name}]",
+                "content": encoded_content,
+                "branch": branch_name
+            }
+            
+            # Add SHA if updating an existing file
             if sha:
-                file_contents = repo.get_contents(file_path, ref=branch_name)
-                write_response = repo.update_file(file_path, f"Update object [{file_name}]", blob, file_contents.sha, branch=branch_name)
+                data["sha"] = sha
+                
+            # Make the API request
+            r = requests.put(endpoint, headers=self.headers, data=json.dumps(data))
+            
+            if r.status_code in [200, 201]:  # 200 for update, 201 for create
+                return [
+                    True, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"SUCCESS: wrote object [{file_name}] to container [{container_name}]"
+                    }, 
+                    r.json()
+                ]
             else:
-                write_response = repo.create_file(file_path, f"Create object [{file_name}]", blob, branch=branch_name)
-            return [True, f"SUCCESS: wrote object [{file_name}] to container [{container_name}]", write_response.raw_data]
+                return [
+                    False, 
+                    {
+                        "status_code": r.status_code, 
+                        "status_msg": f"ERROR: GitHub API returned status {r.status_code}"
+                    }, 
+                    r.json() if r.content else None
+                ]
         except Exception as e:
-            return [False, f"ERROR: unable to write object [{file_name}] to container [{container_name}]", str(e)]
+            return [
+                False, 
+                {
+                    "status_code": 500, 
+                    "status_msg": f"ERROR: unable to write object [{file_name}] to container [{container_name}]"
+                }, 
+                str(e)
+            ]
 
     def write_object(self, container_name, obj, ref, sha):
         """
@@ -758,7 +764,6 @@ class GitHubFunctions:
             repo = self.github_instance.get_repo(f"{self.org_name}/{self.repo_name}")
             file_path = f"{container_name}/{self.object_files[container_name]}"
             obj_sha = self.get_sha(container_name, self.object_files[container_name], ref)[2]
-            # file_contents = repo.get_contents(file_path, ref=ref, sha=sha)
             write_response = repo.update_file(
                 file_path, 
                 f"Update object [{self.object_files[container_name]}]", 
@@ -766,13 +771,6 @@ class GitHubFunctions:
                 sha=obj_sha, 
                 branch=ref
             )
-            # NOTICE: github.Repository.Repository.update_file() has a formatting bug in the library the below is the fix
-            # for the bug.  The bug is that the content is not being encoded to bytes before being base64 encoded. If this is
-            # not done the content will be base64 encoded as a string and the file will be corrupted. The version of library needs
-            # to be manually patched to fix this issue.
-            # if not isinstance(content, bytes):
-            #   content = content.encode("utf-8")
-            #   content = b64encode(content).decode("utf-8")
             return [
                 True, 
                 {
@@ -848,65 +846,20 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a status message, and the updated object (or the error message in case of failure).
         """
-        # Updates can look like this
-        # updates = {
-        #     "Studies": {
-        #       "updates": {
-        #         "My Study": {
-        #             "name": "My New Study",
-        #             "description": "This is a new study."
-        #         },
-        #         "Another Study": {
-        #             "name": "Another New Study",
-        #             "description": "This is another new study."
-        #         },
-        #       },
-
-        #       "system": False,
-        #       "white_list": []
-        #     }
-        # }
-        
-        # Check to see if the updates dictionary is empty
         if not updates:
             return [False, {'status_code': 400, 'status_msg': 'No updates provided.'}, None]
         
-        # Get the containers and put them into a list called my_containers
         my_containers = list(updates.keys())
 
-        # For each container in the list of containers, for that container first check to see 
-        # if the system flag is set to False. If it is then check to see if the key is in the white list.
-        # If it is not in the white list return an error message.
-        # NOTE: Commenting out as this may not be needed since catch reads the objects
-        # for container in my_containers:
-
-        #         # Get the current objects from the container
-        #         read_response = self.read_objects(container)
-        #         if not read_response[0]:
-        #             return [
-        #                 False,
-        #                 {
-        #                     'status_code': read_response[1]['status_code'],
-        #                     'status_msg': 'Failed to read objects from container [{}].'.format(container)
-        #                 },
-        #                 None
-        #             ]
-        #         updates[container]['objects'] = read_response[2]['mr_json']
-
-
-        # Catch the containers for modification
         repo_metadata = {
             "containers": {}, 
             "branch": {}
         }
         
-        # Create a dictionary to hold the caught containers
         caught = dict()
 
-        # Map the containers to the repo_metadata dictionary
         repo_metadata["containers"] = {container: {} for container in my_containers}
 
-        # Catch all the containers
         caught = self.catch_container(repo_metadata)
 
         if not caught[0]:
@@ -919,36 +872,25 @@ class GitHubFunctions:
                 caught
             ]
         
-        # Loop through the containers and update the objects
         for container_name in my_containers:
-            # Convert the white_list to a set for efficient set operations
-            # NOTICE: the two lines below are added because of processing problems with Caffeine.
-            #         Until we understand what the problems are we will keep this code in place.
             with open('/dev/null', 'w') as f:
                 f.write(json.dumps(updates))
             white_list_set = set(updates[container_name]['white_list'])
             
 
-            # Capture the system flag
             system = updates[container_name]['system']
 
-            # Get the current objects from the dictionary
             current_objects = caught[2]['containers'][container_name]['objects']
 
-            # Get the updates from the dictionary
             updates = updates[container_name]['updates']
-            # Loop through the updates, find the object(s) to update, and then perform the updates
             for my_obj in updates.keys():
                 obj_name = my_obj
                 obj = None
-                # Remove the object from the list of objects so we can add it back later
                 for item in current_objects:
-                    if item.get('name') == obj_name:  # assuming 'name' is the relevant key in the dictionaries
+                    if item.get('name') == obj_name:
                         obj = item
-                        # Remove object from the list
                         current_objects.remove(item)
                         break
-                # Check to see if the object exists
                 if obj is None:
                     return [
                         False,
@@ -959,13 +901,10 @@ class GitHubFunctions:
                         None
                     ]
                 if not system:
-                    # Check to see if the updates are in the white list
                     keys_set = set(updates[my_obj].keys())
 
-                    # Find the keys that are not allowed by subtracting the white_list from the keys
                     not_allowed_keys = keys_set - white_list_set
 
-                    # If there are any not allowed keys, return the error for the first encountered key
                     if not_allowed_keys:
                         first_not_allowed_key = next(iter(not_allowed_keys))
                         return [
@@ -977,14 +916,11 @@ class GitHubFunctions:
                             None
                         ]
                 
-                # Check to see if we should update the object using the updates dictionary
                 for key, value in updates[my_obj].items():
-                    # Update the object
                     obj[key] = value
                     now = datetime.now()
                     obj['modification_date'] = now.isoformat()
 
-                # Append the updated object to the list of objects
                 current_objects.append(obj)
 
                 write_response = self.write_object(
@@ -1003,7 +939,6 @@ class GitHubFunctions:
                         None
                     ]
         
-        # Release the containers
         released = self.release_container(caught[2], f"Updated [{len(current_objects)}] [{container_name}] objects.")
         if not released[0]:
             return [
@@ -1015,7 +950,6 @@ class GitHubFunctions:
                 released
             ]
 
-        # Return the updated object
         return [True, {'status_code': 200, 'status_msg': 'Object updated successfully.'}, updates]
 
     def delete_object(self, container_name, file_name, branch_name, sha):
@@ -1087,46 +1021,30 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a dictionary with status code and message, and a list of responses for each container catch (or the error message in case of failure).
         """
-        # Check to see if the containers are locked
         for container in repo_metadata['containers']:
-            # Call the method above to check for a lock
             lock_exists = self.check_for_lock(container)
-            # If the lock exists return an error
             if lock_exists[0]:
                 return [False, {'status_code': 503, 'status_msg': f'the container [{container}] is locked unable and cannot perform creates, updates or deletes on objects.'}, lock_exists]
 
-        # Lock the containers
         for container in repo_metadata['containers']:
-            # Call the method above to lock the container
             locked = self.lock_container(container)
-            # Check to see if the container was locked and return the error if not
             if not locked[0]:
                 return [False, {'status_code': 503, 'status_msg': f'unable to lock [{container}] and cannot perform creates, updates or deletes on objects.'}, locked]
-            # Save the lock sha into containers as a separate object
             repo_metadata['containers'][container]['lockSha'] = locked[2]['commit'].sha
 
-        # Call the method above create_branch_from_main to create a new branch
         branch_created = self.create_branch_from_main()
-        # Check to see if the branch was created
         if not branch_created[0]:
             return [False, {'status_code': 503, 'status_msg': 'unable to create new branch'}, branch_created]
-        # Save the branch sha into containers as a separate object
         repo_metadata['branch'] = {
             'name': branch_created[2]['ref'],
             'sha': branch_created[2]['object']['sha']
         }
 
-        # Read the objects from the containers
         for container in repo_metadata['containers']:
-            # Call the method above to read the objects
             read_response = self.read_objects(container)
-            # Check to see if the read was successful
             if not read_response[0]:
                 return [False, {'status_code': 503, 'status_msg': f'Unable to read the source objects [{container}/{self.object_files[container]}].'}, read_response]
-            # Save the object sha into containers as a separate object
-            # repo_metadata['containers'][container]['objectSha'] = read_response[2]['data']['sha']
             repo_metadata['containers'][container]['object_sha'] = read_response[2]['sha']
-            # Save the objects into containers as a separate object
             repo_metadata['containers'][container]['objects'] = read_response[2]['mr_json']
 
         return [True, {'status_code': 200, 'status_msg': f"{len(repo_metadata['containers'])} containers are ready for use."}, repo_metadata]
@@ -1145,23 +1063,17 @@ class GitHubFunctions:
         list
             A list containing a boolean indicating success or failure, a dictionary with status code and message, and a list of responses for each container release (or the error message in case of failure).
         """
-        # Merge the branch to main
         merge_response = self.merge_branch_to_main(repo_metadata['branch']['name'], commit_description)
-        # Check to see if the merge was successful and return the error if not
         if not merge_response[0]:
             return [False, {'status_code': 503, 'status_msg': 'Unable to merge the branch to main.'}, merge_response]
 
-        # Unlock the containers by looping through them
         for container in repo_metadata['containers']:
-            # Unlock branch
             branch_unlocked = self.unlock_container(container, repo_metadata['containers'][container]['lockSha'], repo_metadata['branch']['name'])
             if not branch_unlocked[0]:
                 return [False, {'status_code': 503, 'status_msg': f"Unable to unlock the container, objects may have been written please check [{container}] for objects and the lock file."}, branch_unlocked]
-            # Unlock main
             main_unlocked = self.unlock_container(container, repo_metadata['containers'][container]['lockSha'])
             if not main_unlocked[0]:
                 return [False, {'status_code': 503, 'status_msg': f"Unable to unlock the container, objects may have been written please check [{container}] for objects and the lock file."}, main_unlocked]
 
-        # Return success with number of objects written
         return [True, {'status_code': 200, 'status_msg': f"Released [{len(repo_metadata['containers'])}] containers."}, None]
-    
+
