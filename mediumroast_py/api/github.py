@@ -543,88 +543,161 @@ class GitHubFunctions:
                 encoded_chars.append(urllib.parse.quote(char))
         
         return ''.join(encoded_chars)
-    def _download_file(self, url, headers):
-        try:
-            download_result = requests.get(url, headers=headers)
-            download_result.raise_for_status()
-            return [True, download_result.content]
-        except requests.exceptions.RequestException as e:
-            if 'Request path contains unescaped characters' in str(e) or 'ERR_UNESCAPED_CHARACTERS' in str(e):
-                return [False, 'ERR_UNESCAPED_CHARACTERS']
-            return [False, str(e)]
-
-    def _re_encode_download_url(self, url, original_file_name):
-        url_parts = url.split('/')
-        last_part = url_parts.pop()
-        url_parts.pop()
-        alt_last_part = last_part.split('?')
-        query_params = alt_last_part[-1] if len(alt_last_part) > 1 else ''
-        return f"{'/'.join(url_parts)}/{original_file_name}{'?' + query_params if query_params else ''}"
-
-    def read_blob(self, file_name):
+    
+    def _download_file(self, url, headers, timeout=30):
         """
-        Read a blob (file) from a container (directory) in a specific branch.
-
+        Download file from a URL with proper error handling.
+        
         Parameters
         ----------
-        file_name : str
-            The name of the blob to read with a complete path to the file (e.g. dirname/filename.ext).
-
+        url : str
+            URL to download from
+        headers : dict
+            HTTP headers including authentication
+        timeout : int
+            Request timeout in seconds
+            
         Returns
         -------
         list
-            A list containing a boolean indicating success or failure, a status message, and the blob's raw data (or the error message in case of failure).
+            [success_boolean, content_or_error_message]
         """
-        original_file_name_encoded = self._custom_encode_uri_component(file_name)
-        encoded_file_name = urllib.parse.quote(file_name)
-        object_url = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{encoded_file_name}"
-        headers = {'Authorization': 'token ' + self.token}
-
         try:
-            result = requests.get(object_url, headers=headers)
-            result.raise_for_status()
+            download_result = requests.get(url, headers=headers, timeout=timeout)
+            download_result.raise_for_status()
+            return [True, download_result.content]
+        except requests.exceptions.RequestException as e:
+            error_msg = str(e)
+            if 'Request path contains unescaped characters' in error_msg or 'ERR_UNESCAPED_CHARACTERS' in error_msg:
+                return [False, {'status_code': 400, 'status_msg': 'URL contains unescaped characters'}]
+            elif hasattr(e.response, 'status_code'):
+                return [False, {'status_code': e.response.status_code, 'status_msg': error_msg}]
+            return [False, {'status_code': 500, 'status_msg': error_msg}]
+
+    # def _re_encode_download_url_orig(self, url, original_file_name):
+    #     url_parts = url.split('/')
+    #     last_part = url_parts.pop()
+    #     url_parts.pop()
+    #     alt_last_part = last_part.split('?')
+    #     query_params = alt_last_part[-1] if len(alt_last_part) > 1 else ''
+    #     return f"{'/'.join(url_parts)}/{original_file_name}{'?' + query_params if query_params else ''}"
+
+    def _re_encode_download_url(self, url, original_file_name):
+        """
+        Re-encode a GitHub download URL by replacing the filename with a properly encoded version.
+        
+        This is used when the original URL contains special characters that need special encoding.
+        
+        Parameters
+        ----------
+        url : str
+            The original download URL from GitHub
+        original_file_name : str
+            The encoded filename to use in the new URL
+            
+        Returns
+        -------
+        str
+            A new URL with the properly encoded filename
+        """
+        try:
+            # Parse the URL properly
+            parsed_url = urllib.parse.urlparse(url)
+            
+            # Split the path into parts
+            path_parts = parsed_url.path.split('/')
+            
+            # Replace the last part (filename) with our encoded version
+            path_parts[-1] = original_file_name
+            
+            # Reconstruct the URL with the new path but keeping the original query
+            new_path = '/'.join(path_parts)
+            new_url = urllib.parse.urlunparse((
+                parsed_url.scheme,
+                parsed_url.netloc,
+                new_path,
+                parsed_url.params,
+                parsed_url.query,
+                parsed_url.fragment
+            ))
+            
+            return new_url
+        except Exception as e:
+            # If anything goes wrong, log it and return the original URL
+            print(f"Error re-encoding URL: {e}")
+            return url
+
+    def read_blob(self, file_name, branch_name=None):
+        """
+        Read a blob (file) from GitHub using REST API.
+    
+        Parameters
+        ----------
+        file_name : str
+            Path to the file (e.g. 'container_name/file_name.ext')
+        branch_name : str, optional
+            The branch to read from. If None, uses main branch.
+    
+        Returns
+        -------
+        list
+            [success_boolean, 
+             {"status_code": int, "status_msg": str}, 
+             content_or_error]
+        """
+        branch_name = branch_name if branch_name else self.main_branch_name
+        
+        try:
+            # First try to get the file metadata including the download URL
+            encoded_file_name = urllib.parse.quote(file_name, safe='')
+            object_url = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{encoded_file_name}"
+            params = {"ref": branch_name}
+            
+            # Get file metadata
+            result = requests.get(object_url, headers=self.headers, params=params)
+            if result.status_code != 200:
+                return [False, 
+                        {"status_code": result.status_code, 
+                         "status_msg": f"Failed to get file metadata for [{file_name}]"}, 
+                        result.text]
+            
             result_json = result.json()
-            download_url = result_json['download_url']
-
-            blob_data = self._download_file(download_url, headers)
-
-            if blob_data[0]:
-                return [True, {'status_code': 200, 'status_msg': f'read object [{file_name}]'}, blob_data[1]]
+            
+            # Handle both direct content (small files) and download_url (larger files)
+            if "content" in result_json and result_json["encoding"] == "base64":
+                # Small file - content is included directly
+                content = base64.b64decode(result_json["content"])
+                return [True, 
+                        {"status_code": 200, 
+                         "status_msg": f"Read file [{file_name}] from branch [{branch_name}]"}, 
+                        content]
+            
+            elif "download_url" in result_json:
+                # Larger file - download separately
+                download_url = result_json["download_url"]
+                download_result = self._download_file(download_url, self.headers)
+                
+                if download_result[0]:
+                    return [True, 
+                            {"status_code": 200, 
+                             "status_msg": f"Read file [{file_name}] from branch [{branch_name}]"}, 
+                            download_result[1]]
+                else:
+                    return [False, 
+                            {"status_code": 500, 
+                             "status_msg": f"Download failed for [{file_name}]"}, 
+                            download_result[1]]
             else:
-                if blob_data[1] == 'ERR_UNESCAPED_CHARACTERS':
-                    download_url = self._re_encode_download_url(download_url, original_file_name_encoded)
-                    blob_data = self._download_file(download_url, headers)
-                    if blob_data[0]:
-                        return [True, {'status_code': 200, 'status_msg': f'read object [{file_name}]'}, blob_data[1]]
-                return [False, {'status_code': 503, 'status_msg': f'unable to read object [{file_name}] due to [{blob_data[1]}].'}, blob_data[1]]
+                return [False, 
+                        {"status_code": 500, 
+                         "status_msg": f"File data format not recognized for [{file_name}]"}, 
+                        result_json]
+                        
         except Exception as e:
-            return [False, {'status_code': 503, 'status_msg': f'unable to read object [{file_name}]'}, str(e)]
-
-    def read_blob_orig(self, file_name):
-        """
-        NOTE: This is the original implementation of the read_blob method. It is kept here for reference and comparison purposes. It is not used in the current implementation.
-        """
-
-        encoded_file_name = urllib.parse.quote(file_name)
-        object_url = f"https://api.github.com/repos/{self.org_name}/{self.repo_name}/contents/{encoded_file_name}"
-        headers = {'Authorization': 'token ' + self.token}
-        try:
-            result = requests.get(object_url, headers=headers)
-            result_json = result.json()
-            download_url = result_json['download_url']
-            download_result = requests.get(download_url)
-            bin_file = download_result.content
-            return [
-                True, 
-                {"status_code": 200, "status_msg": f"read object [{file_name}] from container [{file_name}]"}, 
-                bin_file
-            ]
-        except Exception as e:
-            return [
-                False, 
-                {"status_code": 503, "status_msg": f"unable to read object [{file_name}] due to [{e}]."}, 
-                e
-            ]
+            return [False, 
+                    {"status_code": 500, 
+                     "status_msg": f"Error reading file [{file_name}]: {str(e)}"}, 
+                    str(e)]
     
     def write_blob(self, container_name, file_name, blob, branch_name, sha=None):
         """
