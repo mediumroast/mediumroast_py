@@ -140,3 +140,4 @@ secrets/
 secrets/*
 !secrets/.gitkeep
 *.pem
+*.pat
