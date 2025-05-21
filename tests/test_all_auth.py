@@ -224,6 +224,8 @@ class TestMediumroastForGitHubAuth(unittest.TestCase):
         
         print(self.separator)
 
+    # NOTE: We do not want to test device flow; remove this test
+    # TODO: Removet eh device flow test
     def test_device_flow_auth(self):
         print('Test GitHubAuth: get_access_token_device_flow')
         print(self.separator)
