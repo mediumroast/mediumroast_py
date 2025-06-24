@@ -127,6 +127,53 @@ class GitHubAuth:
             logger.error(f"Error checking token: {str(e)}")
             return [False, {'status_code': 500, 'status_msg': str(e)}, None]
     
+    
+    def get_access_token_pem(self):
+        """
+        Get an installation access token using a PEM file.
+
+        Returns
+        -------
+        str
+            The installation access token.
+        """
+        # Load the private key
+        private_key = str()
+        if self.private_key:
+            private_key = self.private_key
+        else:
+            private_key = Path(self.secret_file).read_text() 
+
+        # Generate the JWT
+        payload = {
+            # issued at time
+            'iat': int(time.time()),
+            # JWT expiration time (10 minute maximum)
+            'exp': int(time.time()) + (10 * 60),
+            # GitHub App's identifier
+            'iss': self.app_id
+        }
+        jwt_token = jwt.encode(payload, private_key, algorithm='RS256')
+
+        # Create the headers to include in the request
+        headers = {
+            'Authorization': f'Bearer {jwt_token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        # Make the request to generate the installation access token
+        response = requests.post(
+            f'https://api.github.com/app/installations/{self.installation_id}/access_tokens', headers=headers)
+        response.raise_for_status()
+
+        # Extract the token and its expiration time from the response
+        token_data = response.json()
+        token = token_data['token']
+        expires_at = token_data['expires_at']
+
+        return {'token': token, 'expires_at': expires_at, 'auth_type': 'pem'}
+    
+
     def get_access_token_device_flow(self) -> Dict[str, str]:
         """
         Gets an access token using the device flow.
