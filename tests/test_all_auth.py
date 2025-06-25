@@ -6,8 +6,8 @@ import json
 import datetime
 from unittest.mock import patch, MagicMock
 from typing import Dict, Any
-from mediumroast_py.api.authorize import GitHubAuth
-from mediumroast_py.api.github import GitHubFunctions
+from mediumroast_py_api.api.authorize import GitHubAuth
+from mediumroast_py_api.api.github import GitHubFunctions
 from pprint import pprint
 
 

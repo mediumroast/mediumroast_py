@@ -4,9 +4,9 @@ import base64
 import hashlib
 import json
 from unittest.mock import patch, MagicMock
-from mediumroast_py.api.authorize import GitHubAuth
-from mediumroast_py.api.github import GitHubFunctions
-from mediumroast_py.api.github_server import Companies, Interactions
+from mediumroast_py_api.api.authorize import GitHubAuth
+from mediumroast_py_api.api.github import GitHubFunctions
+from mediumroast_py_api.api.github_server import Companies, Interactions
 from pprint import pprint
 
 

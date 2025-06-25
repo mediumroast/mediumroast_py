@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "mediumroast_py"
+name = "mediumroast_py_api"
 version = "0.6.12.17"
 description = "This Python package provides a Software Development Kit (SDK) for interacting with Mediumroast for GitHub. It is used internally by Mediumroast, Inc. and meant for developers to make use of."
-authors = ["Michael Hay <michael.hay@mediumroast.io>"]
+authors = ["Michael Hay <michael.hay@mediumroast.io>", "John Goodman <john.goodman@mediumroast.io>"]
 license = "Apache-2.0"
 repository = "https://github.com/mediumroast/mediumroast_py"
 readme = "README.md"
